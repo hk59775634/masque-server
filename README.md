@@ -1,4 +1,17 @@
-# MASQUE VPN Monorepo (Phase 2 in progress)
+# MASQUE VPN Monorepo (Phase 2a done; Phase 2b in progress)
+
+> **Chinese documentation / 中文说明：** [README.zh.md](./README.zh.md) — CONNECT-IP, QUIC stub, Linux `connect-ip-tun`, env vars, and metrics (中文专页).
+
+## Milestone status
+
+- **Phase 1（文档化交付 M1–M4）**：已闭环（控制面 + 最小 masque 桩 + Linux 客户端 + 可观测/部署/验收材料）；详见 `docs/release-notes/m1-m4-release-notes-2026-04-25.md` 与 `docs/runbooks/m4-go-live-acceptance-report-2026-04-25.md`。
+- **Phase 2a**：数据面探索与运维闭环（**服务端 TCP 探测** `POST /v1/masque/tcp-probe`、可选主监听 **HTTPS**、既有 E2E/可观测/客户端能力）；能力见 `GET /v1/masque/capabilities` 的 `tunnel.phase2a`。
+- **Phase 2b（当前迭代重心）**：端到端用户 **MASQUE/QUIC 隧道**、设备 **mTLS**、控制面↔masque **双向 TLS / 非 REST 硬化**、细粒度 **RBAC**。**未再单独编号为「M5」**（需求总览仍以 M1–M4 为 Phase 1 划分，见 `开发需求.md` §12）。
+
+### 当前开发进度（简要）
+
+- **已完成（含 Phase 2a）**：端到端激活/连接桩（含 Docker E2E）、`MASQUE_SERVER_URL`、`connect -dry-run`、连接重试、会话 ID、运行时状态与 `status` 摘要、`disconnect` 幂等、Prometheus（含 authorize、tcp-probe 指标与告警）、masque **X-Request-ID** 与 `/connect` 日志、`/connect` **64KiB** 请求体上限、**tcp-probe** 与 **`doctor -tcp-probe`**、可选 **`LISTEN_TLS_*`** 主监听 TLS、客户端为每次 POST 带 **X-Request-ID**。
+- **未开始（Phase 2b）**：真实 MASQUE/QUIC **用户 IP 隧道**、设备 mTLS 与证书生命周期、控制面↔masque 双向 TLS/非 REST 硬化、细粒度 RBAC。
 
 This repository contains a closed-loop implementation and M2 upgrades:
 
@@ -12,12 +25,16 @@ This repository contains a closed-loop implementation and M2 upgrades:
 1. Start control-plane:
    - `cd control-plane`
    - `php artisan migrate`
+   - Set **`MASQUE_SERVER_URL`** in `.env` to your masque-server base URL (e.g. `http://127.0.0.1:8443`). This is what activate/config put into the client as `masque_server_url` — it must not be the Laravel `APP_URL`.
    - `php artisan serve --host=127.0.0.1 --port=8000`
 2. Start masque-server:
    - `cd ../masque-server`
    - `go mod tidy`
    - `go run ./cmd/server version` (optional; prints build metadata, overridable with `-ldflags -X main.version=...`)
    - `CONTROL_PLANE_URL=http://127.0.0.1:8000 go run ./cmd/server`
+   - Optional **TLS on the main TCP listener** (dev): `./scripts/dev/gen-masque-listen-tls.sh /tmp` then `LISTEN_TLS_CERT=/tmp/masque-listen.crt LISTEN_TLS_KEY=/tmp/masque-listen.key go run ./cmd/server` (set control-plane **`MASQUE_SERVER_URL`** to `https://...`; clients use `https` or `curl -k`)
+   - Optional UDP **HTTP/3** health/capabilities + **CONNECT-IP stub** (self-signed TLS, dev only): `QUIC_LISTEN_ADDR=:8444` on the same process; probe with `curl --http3-only -k https://127.0.0.1:8444/healthz`. **Dev only:** `CONNECT_IP_SKIP_AUTH=1` or `MASQUE_CONNECT_IP_SKIP_AUTH=1` disables Bearer/Device-Fingerprint on CONNECT-IP (see capabilities `quic.connect_ip.dev`).
+   - Linux client: `client doctor -connect-ip` dials QUIC using **`transport.http3_stub.listen_udp`** from capabilities (host taken from `masque_server_url` when listen_udp is `:port`); override with **`-connect-ip-udp 127.0.0.1:8444`** if needed.
 3. Use API to create user + activation code + policy:
    - `POST /api/v1/users`
    - `POST /api/v1/devices/activation-code`
@@ -31,6 +48,8 @@ This repository contains a closed-loop implementation and M2 upgrades:
    - `go run ./cmd/client config show` (token redacted) or `config path` / `config export` / `config import -i file [-force] [-verify]`
    - `go run ./cmd/client status -live` (local summary + `GET /api/v1/devices/self`); `status -json` / `status -json -live` for machine-readable output
    - `sudo go run ./cmd/client connect` (optional `connect -check` to require control plane `GET /api/v1/devices/self` OK before masque)
+   - `go run ./cmd/client connect -dry-run` (POST `/connect` only; no `ip route` or `/etc/resolv.conf` changes — no root)
+   - `go run ./cmd/client connect -connect-retries 2` (default 2 extra tries on masque **429 / 5xx** or transport errors; POST timeout 15s)
    - `sudo go run ./cmd/client disconnect`
 
 ## Current scope
@@ -45,18 +64,29 @@ Implemented:
 - Control plane probe: `GET /api/v1/health` (JSON) for load balancers and CLI checks
 - Device introspection: `GET /api/v1/devices/self` with `Authorization: Bearer <device_token>` returns device fields + resolved policy (no secrets); stricter throttle **45/min** vs 120/min for other v1 routes
 - Linux client route and DNS automation with disconnect restore; `doctor`, `config show|path|export|import` (`-verify` on import)
-- server metrics endpoint for Prometheus (`/metrics`); `/healthz` JSON includes `version` string (link-time `main.version`)
+- server metrics endpoint for Prometheus (`/metrics`); `/healthz` JSON includes `version` string (link-time `main.version`); `/connect` returns a unique `session` id (`msq_` + 32 hex) and exposes `masque_authorize_latency_seconds` for control-plane authorize RTT; **X-Request-ID** middleware on HTTP/1.1 router (echoed on responses, logged on `/connect` outcomes — no tokens); `/connect` rejects bodies **> 64KiB** with **413** (`masque_connect_failures_total{reason="payload_too_large"}`)
+- **Phase 2a:** `POST /v1/masque/tcp-probe` (JSON `device_token`, `fingerprint`, literal **`host` IP**, `port`) — authorize + ACL then **TCP dial from masque host**; metrics `masque_tcp_probe_*`; **`doctor -tcp-probe 1.1.1.1:443`**
+- **Phase 2b (stub):** with **`QUIC_LISTEN_ADDR`**, the UDP HTTP/3 listener accepts **extended CONNECT** with **`:protocol connect-ip`** (RFC 9484 shape). Before **200** it calls the same control-plane **`/api/v1/server/authorize`** as TCP (unless **`CONNECT_IP_SKIP_AUTH` / `MASQUE_CONNECT_IP_SKIP_AUTH`** is set for local dev), using **`Authorization: Bearer <device_token>`** and **`Device-Fingerprint`**. Then **200** + **`Capsule-Protocol: ?1`** and **RFC 9297 + RFC 9484** parsing: **ADDRESS_ASSIGN / ADDRESS_REQUEST / ROUTE_ADVERTISEMENT** payloads are decoded; **ROUTE_ADVERTISEMENT** ranges are checked against device policy (**both ends of the inclusive range must lie in the same `allow[].cidr`**; empty ACL allows all). After **ADDRESS_REQUEST**, the stub writes **ADDRESS_ASSIGN** (documentation **192.0.2.1/32** and **2001:db8::1/128** when unspecified; explicit preferred addresses must pass the same ACL rule). **HTTP/3 datagrams (RFC 9297)** are **negotiated** on the QUIC listener (SETTINGS); inbound datagrams use **RFC 9484** framing when a leading **QUIC varint Context ID** is present (**0** = raw IP packet follows; **non-zero** is dropped unless **`CONNECT_IP_STUB_ECHO_CONTEXTS`** lists that ID for dev peel); inner **IPv4/IPv6** is checked with the same **`allow[].cidr` / `protocol` / `port`** rules as **`POST /connect`**, then **echoed** if allowed (IPv6 **Hop-by-Hop / Routing / Destination / Fragment** extension headers are skipped before reading TCP/UDP ports); **opaque** inner payloads are echoed without IP parsing. **Not yet:** **IP-in-datagram** relay to the Internet or **TUN** / kernel routes. Metrics: **`masque_connect_ip_requests_total{result=...}`** (includes **`forbidden`**), **`masque_connect_ip_capsules_parsed_total`**, **`masque_connect_ip_capsule_parse_errors_total{cause}`**, **`masque_connect_ip_rfc9484_capsules_total{capsule}`**, **`masque_connect_ip_address_assign_writes_total`**, **`masque_connect_ip_datagrams_received_total`**, **`masque_connect_ip_datagrams_sent_total`**, **`masque_connect_ip_datagrams_dropped_total`**, **`masque_connect_ip_datagram_acl_denied_total`**, **`masque_connect_ip_datagram_unknown_context_total`**, **`masque_connect_ip_streams_active`** (gauge); **`client doctor -connect-ip`** (CONNECT + SETTINGS + **RFC 9484 Context ID 0** + **datagram echo**); optional **`doctor -connect-ip -connect-ip-rfc9484-udp`** sends a second **IPv4/UDP TEST-NET** probe (requires ACL to allow **192.0.2.1** UDP **53** when CONNECT-IP auth is on). Capabilities: **`GET /v1/masque/capabilities`** (`quic.connect_ip.rfc9484`).
+- linux-client sends **X-Request-ID** (`cli_` + 16 hex) on `activate` and `connect` POSTs for log correlation with masque
 - Go binaries: `client version` / `server version` subcommands for release traceability (`-ldflags -X main.version|commit|date`)
 - CI workflow for Laravel + Go components (`.github/workflows/ci.yml`); Go job builds each binary with `-ldflags` (`main.version` = `ci-<run>` or tag name, `main.commit` = short SHA, `main.date` UTC) and runs `version` smoke
 - observability stack via Docker Compose (`ops/observability/docker-compose.yml`)
 - basic deploy and rollback scripts (`scripts/deploy/deploy.sh`, `scripts/deploy/rollback.sh`)
 - Prometheus alert rules + Alertmanager baseline config
 
-Not yet implemented:
+Not yet implemented (Phase 2b and beyond):
 
-- Real MASQUE data plane tunnel handling
-- mTLS certificate issuance/rotation/revocation
+- End-user MASQUE / QUIC **routed IP tunnel** (capsule parsing, policies, **IP-in-HTTP-Datagram** relay, TUN integration; QUIC listener has extended CONNECT, capsules, stub addressing, **RFC 9297 datagram SETTINGS**, and a **datagram echo** stub only)
+- mTLS certificate issuance/rotation/revocation for devices
 - Fine-grained RBAC beyond the `is_admin` flag (roles/permissions matrix)
+
+## Client connect smoke (loopback)
+
+With control-plane and masque-server running as above, and **`MASQUE_SERVER_URL`** matching masque:
+
+- `./scripts/dev/e2e-client-connect-dry-run.sh` — creates a throwaway API user, issues a code, `activate`, then `connect -dry-run` using a temp config file (does not overwrite `~/.masque-client.json`).
+- **Docker (same E2E, fully isolated):** from repo root, `docker compose -f docker/e2e/docker-compose.yml up --build --abort-on-container-exit --remove-orphans` (see `docker/e2e/README.md`).
+- Optional isolation: `MASQUE_CLIENT_CONFIG` / `MASQUE_CLIENT_STATE` point the CLI at alternate paths (the script sets these automatically).
 
 ## M3 local observability quickstart
 
