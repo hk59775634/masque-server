@@ -1,0 +1,56 @@
+<?php
+
+namespace Tests\Feature;
+
+use App\Models\User;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\TestCase;
+
+class ApiDeviceSelfTest extends TestCase
+{
+    use RefreshDatabase;
+
+    public function test_devices_self_requires_bearer(): void
+    {
+        $this->getJson('/api/v1/devices/self')
+            ->assertStatus(401)
+            ->assertJsonPath('message', 'Unauthorized');
+    }
+
+    public function test_devices_self_returns_profile_with_valid_token(): void
+    {
+        $this->postJson('/api/v1/users', [
+            'name' => 'Self API User',
+            'email' => 'selfapi@example.com',
+            'password' => 'password123',
+        ])->assertStatus(201);
+
+        $user = User::query()->where('email', 'selfapi@example.com')->firstOrFail();
+
+        $codeResp = $this->postJson('/api/v1/devices/activation-code', [
+            'user_id' => $user->id,
+            'device_name' => 'cli-test',
+            'fingerprint' => 'fp-self-api',
+        ]);
+        $codeResp->assertStatus(201);
+        $rawCode = $codeResp->json('activation_code');
+        $this->assertNotEmpty($rawCode);
+
+        $act = $this->postJson('/api/v1/activate', [
+            'activation_code' => $rawCode,
+            'fingerprint' => 'fp-self-api',
+        ]);
+        $act->assertStatus(200);
+        $token = $act->json('device_token');
+        $this->assertNotEmpty($token);
+
+        $self = $this->withToken($token)->getJson('/api/v1/devices/self');
+        $self->assertOk()
+            ->assertJsonPath('device.device_name', 'cli-test')
+            ->assertJsonPath('device.fingerprint', 'fp-self-api')
+            ->assertJsonPath('device.status', 'active')
+            ->assertJsonPath('policy.route_mode', 'all');
+
+        $this->assertArrayNotHasKey('api_token_hash', $self->json('device') ?? []);
+    }
+}

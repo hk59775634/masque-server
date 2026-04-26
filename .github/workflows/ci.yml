@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  control-plane:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: control-plane
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.4"
+      - name: Install dependencies
+        run: composer install --no-interaction --prefer-dist
+      - name: Prepare sqlite
+        run: |
+          cp .env.example .env
+          touch database/database.sqlite
+      - name: Run tests
+        run: php artisan test
+
+  go-services:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        component: [masque-server, linux-client]
+    defaults:
+      run:
+        working-directory: ${{ matrix.component }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.x"
+      - name: Go test
+        run: |
+          go mod tidy
+          go test ./...
+      - name: Go build (inject version via ldflags)
+        env:
+          GITHUB_REF_TYPE: ${{ github.ref_type }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          GITHUB_RUN_NUMBER: ${{ github.run_number }}
+          GITHUB_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          ROOT_DIR="${GITHUB_WORKSPACE}"
+          # shellcheck source=scripts/deploy/go-build-flags.sh
+          SOURCE_ROOT="${ROOT_DIR}" . "${ROOT_DIR}/scripts/deploy/go-build-flags.sh"
+          go mod tidy
+          if [[ "${{ matrix.component }}" == "linux-client" ]]; then
+            PKG="./cmd/client"
+          else
+            PKG="./cmd/server"
+          fi
+          OUT="/tmp/${{ matrix.component }}-ci"
+          go build -trimpath -ldflags "${GO_LDFLAGS}" -o "${OUT}" "${PKG}"
+          echo "--- ${OUT} version ---"
+          "${OUT}" version

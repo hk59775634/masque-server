@@ -1,0 +1,31 @@
+groups:
+  - name: masque-server-alerts
+    rules:
+      - alert: MasqueConnectFailureRateHigh
+        expr: |
+          (
+            sum(rate(masque_connect_failures_total[5m]))
+            /
+            clamp_min(sum(rate(masque_connect_requests_total[5m])), 0.001)
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          service: masque-server
+        annotations:
+          summary: "MASQUE connect failure rate is high"
+          description: "Connect failure rate has been above 5% for 5 minutes."
+
+      - alert: MasqueConnectLatencyP95High
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum(rate(masque_connect_latency_seconds_bucket[5m])) by (le)
+          ) > 0.8
+        for: 5m
+        labels:
+          severity: warning
+          service: masque-server
+        annotations:
+          summary: "MASQUE connect latency p95 is high"
+          description: "Connect latency p95 has been above 800ms for 5 minutes."

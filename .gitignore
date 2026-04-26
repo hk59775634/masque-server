@@ -1,0 +1,18 @@
+# Deploy layout (release host; not source of truth)
+/releases/
+/current
+
+# OS / editor
+.DS_Store
+*.swp
+Thumbs.db
+
+# Server-local (panel / PHP)
+.user.ini
+
+# ACME HTTP-01 artifacts (host-specific)
+.well-known/acme-challenge/*
+!.well-known/acme-challenge/.gitkeep
+
+# Optional local secrets at repo root
+*.pem
