@@ -3,16 +3,21 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -55,6 +60,9 @@ type connectResponse struct {
 type RuntimeState struct {
 	AddedRoutes      []string `json:"added_routes"`
 	ResolvConfBackup string   `json:"resolv_conf_backup"`
+	Session          string   `json:"session,omitempty"`
+	ConnectedAt      string   `json:"connected_at,omitempty"`
+	DNSOverridden    bool     `json:"dns_overridden,omitempty"`
 }
 
 func main() {
@@ -74,6 +82,8 @@ func main() {
 		cmdDisconnect(os.Args[2:])
 	case "doctor":
 		cmdDoctor(os.Args[2:])
+	case "connect-ip-tun":
+		cmdConnectIPTun(os.Args[2:])
 	case "version":
 		cmdVersion()
 	case "config":
@@ -174,8 +184,10 @@ func cmdActivate(args []string) {
 func cmdConnect(args []string) {
 	fs := flag.NewFlagSet("connect", flag.ExitOnError)
 	doCheck := fs.Bool("check", false, "verify GET /api/v1/devices/self on control plane before connecting to masque")
+	dryRun := fs.Bool("dry-run", false, "POST /connect only; print response and exit without ip route or /etc/resolv.conf changes (no root)")
+	connectRetries := fs.Int("connect-retries", 2, "extra attempts for POST /connect on 429, 5xx, or transport errors (0 = single try)")
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "usage: client connect [-check]\n")
+		fmt.Fprintf(os.Stderr, "usage: client connect [-check] [-dry-run] [-connect-retries N]\n")
 		fs.PrintDefaults()
 	}
 	_ = fs.Parse(args)
@@ -193,7 +205,8 @@ func cmdConnect(args []string) {
 	}
 
 	reqBody := map[string]string{"device_token": cfg.DeviceToken, "fingerprint": cfg.Fingerprint}
-	raw, err := postJSON(cfg.MasqueServerURL+"/connect", reqBody)
+	connectURL := joinURL(cfg.MasqueServerURL, "/connect")
+	raw, err := postJSONWithRetry(connectURL, reqBody, *connectRetries)
 	if err != nil {
 		fatal(err)
 	}
@@ -209,6 +222,12 @@ func cmdConnect(args []string) {
 		resp.DNS = cfg.DNS
 	}
 
+	if *dryRun {
+		fmt.Printf("connect -dry-run: OK (%s)\n", connectURL)
+		fmt.Printf("session=%s masque_ready=%v routes=%v dns=%v\n", resp.Session, resp.MasqueReady, resp.Routes, resp.DNS)
+		return
+	}
+
 	state := RuntimeState{}
 	if err := applyRoutes(resp.Routes, &state); err != nil {
 		fatal(err)
@@ -217,6 +236,9 @@ func cmdConnect(args []string) {
 		_ = restoreRuntime(state)
 		fatal(err)
 	}
+	state.Session = resp.Session
+	state.ConnectedAt = time.Now().UTC().Format(time.RFC3339Nano)
+
 	if err := saveRuntimeState(state); err != nil {
 		fatal(err)
 	}
@@ -230,6 +252,7 @@ func cmdStatus(args []string) {
 	jsonOut := fs.Bool("json", false, "print JSON; add -live to include control plane device/policy")
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "usage: client status [-live] [-json]\n")
+		fmt.Fprintf(os.Stderr, "  Prints saved connect runtime (session, routes, DNS) when state file exists.\n")
 		fs.PrintDefaults()
 	}
 	_ = fs.Parse(args)
@@ -250,6 +273,9 @@ func cmdStatus(args []string) {
 			"device_token_redacted": redactDeviceToken(cfg.DeviceToken),
 		}
 		out := map[string]any{"local": local}
+		if rt := loadRuntimeSummary(); rt != nil {
+			out["runtime"] = rt
+		}
 		if *live {
 			out["remote"] = fetchDeviceSelfRemote(cfg)
 		}
@@ -262,6 +288,10 @@ func cmdStatus(args []string) {
 	}
 
 	fmt.Printf("device_id=%d fingerprint=%s control_plane=%s masque_server=%s routes=%v dns=%v\n", cfg.DeviceID, cfg.Fingerprint, cfg.ControlPlaneURL, cfg.MasqueServerURL, cfg.Routes, cfg.DNS)
+	if rt := loadRuntimeSummary(); rt != nil {
+		fmt.Printf("runtime: session=%v connected_at=%v routes_on_host=%v dns_overridden=%v\n",
+			rt["session"], rt["connected_at"], rt["routes_on_host"], rt["dns_overridden"])
+	}
 
 	if *live {
 		if strings.TrimSpace(cfg.DeviceToken) == "" {
@@ -371,12 +401,18 @@ func httpGetBearer(url, bearer string, timeout time.Duration) ([]byte, int, erro
 
 func cmdDoctor(args []string) {
 	fs := flag.NewFlagSet("doctor", flag.ExitOnError)
-	var cpURL, masqueURL string
+	var cpURL, masqueURL, lokiURL string
 	fs.StringVar(&cpURL, "control-plane", "", "control plane base URL (default: from config or http://127.0.0.1:8000)")
 	fs.StringVar(&masqueURL, "masque-server", "", "MASQUE server base URL (default: from config; omit check if unset and no config)")
+	fs.StringVar(&lokiURL, "loki", "", "optional Loki base URL; probes GET {url}/ready (e.g. http://127.0.0.1:3100)")
+	tcpProbe := fs.String("tcp-probe", "", "optional host:port (IP literal, e.g. 1.1.1.1:443); POST /v1/masque/tcp-probe using device_token from config")
+	connectIP := fs.Bool("connect-ip", false, "QUIC extended CONNECT connect-ip to masque (UDP from capabilities transport.http3_stub.listen_udp, or -connect-ip-udp)")
+	connectIPUDP := fs.String("connect-ip-udp", "", "override UDP host:port for -connect-ip (e.g. 127.0.0.1:8444)")
+	connectIPRFC9484UDP := fs.Bool("connect-ip-rfc9484-udp", false, "with -connect-ip: also send RFC 9484 Context ID 0 + IPv4/UDP to 192.0.2.1:53 (needs ACL allow when auth is on)")
 	strict := fs.Bool("strict", false, "require masque_server URL and a successful /healthz check (no SKIP)")
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "usage: client doctor [-control-plane URL] [-masque-server URL] [-strict]\n")
+		fmt.Fprintf(os.Stderr, "usage: client doctor [-control-plane URL] [-masque-server URL] [-loki URL] [-tcp-probe IP:port] [-connect-ip] [-connect-ip-udp host:port] [-connect-ip-rfc9484-udp] [-strict]\n")
+		fmt.Fprintf(os.Stderr, "  Also probes GET /v1/masque/capabilities when masque URL is set (WARN if stub or unreachable).\n")
 		fs.PrintDefaults()
 	}
 	_ = fs.Parse(args)
@@ -476,6 +512,127 @@ func cmdDoctor(args []string) {
 			fail++
 		} else {
 			printCheck("OK", "masque_server", fmt.Sprintf("GET %s -> 200", mHealth))
+
+			capURL := joinURL(masqueURL, "/v1/masque/capabilities")
+			raw, capCode, capErr := httpGetBody(ctx, client, capURL)
+			if capErr != nil {
+				printCheck("WARN", "masque_capabilities", fmt.Sprintf("GET %s: %v", capURL, capErr))
+				warn++
+			} else if capCode != http.StatusOK {
+				printCheck("WARN", "masque_capabilities", fmt.Sprintf("GET %s returned %d", capURL, capCode))
+				warn++
+			} else {
+				var cap map[string]any
+				if err := json.Unmarshal(raw, &cap); err != nil {
+					printCheck("WARN", "masque_capabilities", "response is not valid JSON")
+					warn++
+				} else {
+					svc, _ := cap["service"].(string)
+					if svc != "masque-server" {
+						printCheck("WARN", "masque_capabilities", fmt.Sprintf("unexpected service field %q", svc))
+						warn++
+					} else {
+						tunnel, _ := cap["tunnel"].(map[string]any)
+						ready, _ := tunnel["masque_ready"].(bool)
+						mode, _ := tunnel["mode"].(string)
+						if !ready {
+							printCheck("WARN", "masque_capabilities", fmt.Sprintf("GET %s -> 200; masque_ready=false mode=%q (data plane stub)", capURL, mode))
+							warn++
+						} else {
+							printCheck("OK", "masque_capabilities", fmt.Sprintf("GET %s -> 200; masque_ready=true", capURL))
+						}
+					}
+				}
+			}
+
+			if strings.TrimSpace(*tcpProbe) != "" {
+				if !cfgLoaded || strings.TrimSpace(cfg.DeviceToken) == "" || strings.TrimSpace(cfg.Fingerprint) == "" {
+					printCheck("WARN", "masque_tcp_probe", "skip (-tcp-probe needs config with device_token and fingerprint)")
+					warn++
+				} else {
+					host, portStr, err := net.SplitHostPort(strings.TrimSpace(*tcpProbe))
+					if err != nil {
+						printCheck("FAIL", "masque_tcp_probe", fmt.Sprintf("bad -tcp-probe %q: %v", *tcpProbe, err))
+						fail++
+					} else {
+						port, err := strconv.Atoi(portStr)
+						if err != nil || port < 1 || port > 65535 {
+							printCheck("FAIL", "masque_tcp_probe", "port must be 1-65535")
+							fail++
+						} else {
+							probeURL := joinURL(masqueURL, "/v1/masque/tcp-probe")
+							body := map[string]any{
+								"device_token": cfg.DeviceToken,
+								"fingerprint":  cfg.Fingerprint,
+								"host":         host,
+								"port":         port,
+							}
+							raw, err := postJSON(probeURL, body)
+							if err != nil {
+								printCheck("WARN", "masque_tcp_probe", fmt.Sprintf("POST %s: %v", probeURL, err))
+								warn++
+							} else {
+								printCheck("OK", "masque_tcp_probe", fmt.Sprintf("POST %s -> %s", probeURL, strings.TrimSpace(string(raw))))
+							}
+						}
+					}
+				}
+			}
+
+			if *connectIP {
+				var udpTarget string
+				var udpErr error
+				if s := strings.TrimSpace(*connectIPUDP); s != "" {
+					udpTarget = s
+				} else {
+					if capErr != nil || capCode != http.StatusOK {
+						printCheck("WARN", "masque_connect_ip", "skip (-connect-ip needs GET /v1/masque/capabilities OK to read listen_udp, or pass -connect-ip-udp)")
+						warn++
+					} else {
+						udpTarget, udpErr = quicUDPAddrFromCapabilities(raw, masqueURL)
+					}
+				}
+				if udpErr != nil {
+					printCheck("WARN", "masque_connect_ip", fmt.Sprintf("UDP target: %v", udpErr))
+					warn++
+				} else if strings.TrimSpace(udpTarget) != "" {
+					var tok, fp string
+					if cfgLoaded {
+						tok = strings.TrimSpace(cfg.DeviceToken)
+						fp = strings.TrimSpace(cfg.Fingerprint)
+					}
+					pctx, pcancel := context.WithTimeout(ctx, 15*time.Second)
+					cerr := doctorProbeConnectIP(pctx, udpTarget, tok, fp, *connectIPRFC9484UDP)
+					pcancel()
+					if cerr != nil {
+						printCheck("FAIL", "masque_connect_ip", fmt.Sprintf("%s -> %v", udpTarget, cerr))
+						fail++
+					} else if *connectIPRFC9484UDP {
+						printCheck("OK", "masque_connect_ip", fmt.Sprintf("CONNECT-IP stub OK via UDP %s (opaque + RFC 9484 CID0 IPv4/UDP echo)", udpTarget))
+					} else {
+						printCheck("OK", "masque_connect_ip", fmt.Sprintf("CONNECT-IP stub OK via UDP %s (HTTP/3 datagram echo)", udpTarget))
+					}
+				}
+			}
+		}
+	}
+
+	lokiURL = strings.TrimRight(strings.TrimSpace(lokiURL), "/")
+	if lokiURL == "" {
+		printCheck("SKIP", "loki", "no URL (pass -loki http://127.0.0.1:3100 to probe /ready)")
+	} else {
+		lokiReady := joinURL(lokiURL, "/ready")
+		if code, err := httpGetStatus(ctx, client, lokiReady); err != nil {
+			printCheck("WARN", "loki", fmt.Sprintf("GET %s: %v", lokiReady, err))
+			warn++
+		} else if code == http.StatusOK {
+			printCheck("OK", "loki", fmt.Sprintf("GET %s -> 200", lokiReady))
+		} else if code == http.StatusServiceUnavailable {
+			printCheck("WARN", "loki", fmt.Sprintf("GET %s -> 503 (Loki ring not ready yet)", lokiReady))
+			warn++
+		} else {
+			printCheck("WARN", "loki", fmt.Sprintf("GET %s returned %d", lokiReady, code))
+			warn++
 		}
 	}
 
@@ -527,6 +684,23 @@ func httpGetStatus(ctx context.Context, client *http.Client, url string) (int, e
 	return resp.StatusCode, nil
 }
 
+func httpGetBody(ctx context.Context, client *http.Client, url string) ([]byte, int, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, 0, err
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, resp.StatusCode, err
+	}
+	return raw, resp.StatusCode, nil
+}
+
 func checkControlPlaneReachable(ctx context.Context, client *http.Client, base string) (string, error) {
 	candidates := []string{
 		joinURL(base, "/api/v1/health"),
@@ -550,7 +724,12 @@ func checkControlPlaneReachable(ctx context.Context, client *http.Client, base s
 func cmdDisconnect(_ []string) {
 	state, err := loadRuntimeState()
 	if err != nil {
-		fatal(err)
+		fmt.Fprintln(os.Stderr, "disconnect: no runtime state on disk, nothing to restore")
+		return
+	}
+	if state.Session != "" || len(state.AddedRoutes) > 0 || state.DNSOverridden {
+		fmt.Fprintf(os.Stderr, "disconnect: session=%s routes_to_drop=%d dns_restore=%v\n",
+			state.Session, len(state.AddedRoutes), state.DNSOverridden)
 	}
 	if err := restoreRuntime(state); err != nil {
 		fatal(err)
@@ -560,6 +739,9 @@ func cmdDisconnect(_ []string) {
 }
 
 func configPath() string {
+	if p := strings.TrimSpace(os.Getenv("MASQUE_CLIENT_CONFIG")); p != "" {
+		return p
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return ".masque-client.json"
@@ -568,6 +750,9 @@ func configPath() string {
 }
 
 func statePath() string {
+	if p := strings.TrimSpace(os.Getenv("MASQUE_CLIENT_STATE")); p != "" {
+		return p
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return ".masque-client-state.json"
@@ -615,31 +800,121 @@ func loadRuntimeState() (RuntimeState, error) {
 	return s, nil
 }
 
-func postJSON(url string, payload any) ([]byte, error) {
-	rawBody, _ := json.Marshal(payload)
+// loadRuntimeSummary returns non-nil if there is an active-looking connect state on disk.
+func loadRuntimeSummary() map[string]any {
+	st, err := loadRuntimeState()
+	if err != nil {
+		return nil
+	}
+	if st.Session == "" && len(st.AddedRoutes) == 0 && !st.DNSOverridden {
+		return nil
+	}
+	return map[string]any{
+		"session":        st.Session,
+		"connected_at":   st.ConnectedAt,
+		"routes_on_host": len(st.AddedRoutes),
+		"dns_overridden": st.DNSOverridden,
+		"added_routes":   st.AddedRoutes,
+	}
+}
+
+func doPostJSON(url string, payload any) ([]byte, int, error) {
+	rawBody, err := json.Marshal(payload)
+	if err != nil {
+		return nil, 0, err
+	}
 	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(rawBody))
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Request-ID", clientRequestID())
 
-	client := &http.Client{Timeout: 6 * time.Second}
+	client := &http.Client{Timeout: 15 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer resp.Body.Close()
 
 	raw, err := io.ReadAll(resp.Body)
 	if err != nil {
+		return nil, resp.StatusCode, err
+	}
+	return raw, resp.StatusCode, nil
+}
+
+func clientRequestID() string {
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return fmt.Sprintf("cli_%d", time.Now().UnixNano())
+	}
+	return "cli_" + hex.EncodeToString(b[:])
+}
+
+func postJSON(url string, payload any) ([]byte, error) {
+	raw, code, err := doPostJSON(url, payload)
+	if err != nil {
 		return nil, err
 	}
-
-	if resp.StatusCode >= http.StatusBadRequest {
-		return nil, fmt.Errorf("request failed (%d): %s", resp.StatusCode, string(raw))
+	if code >= http.StatusBadRequest {
+		return nil, fmt.Errorf("request failed (%d): %s", code, string(raw))
 	}
-
 	return raw, nil
+}
+
+func postJSONWithRetry(url string, payload any, extraRetries int) ([]byte, error) {
+	if extraRetries < 0 {
+		extraRetries = 0
+	}
+	var lastErr error
+	for attempt := 0; attempt <= extraRetries; attempt++ {
+		if attempt > 0 {
+			d := time.Duration(200*(1<<uint(attempt-1))) * time.Millisecond
+			time.Sleep(d)
+		}
+		raw, code, err := doPostJSON(url, payload)
+		if err != nil {
+			lastErr = err
+			if attempt < extraRetries && retriableTransportErr(err) {
+				continue
+			}
+			return nil, err
+		}
+		if code < http.StatusBadRequest {
+			return raw, nil
+		}
+		lastErr = fmt.Errorf("request failed (%d): %s", code, string(raw))
+		if code == http.StatusTooManyRequests || code >= http.StatusInternalServerError {
+			if attempt < extraRetries {
+				continue
+			}
+		}
+		return nil, lastErr
+	}
+	return nil, lastErr
+}
+
+func retriableTransportErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	var ne net.Error
+	if errors.As(err, &ne) && ne.Timeout() {
+		return true
+	}
+	var ue *url.Error
+	if errors.As(err, &ue) {
+		if ue.Timeout() {
+			return true
+		}
+		if errors.As(ue.Err, &ne) && ne.Timeout() {
+			return true
+		}
+	}
+	// Fallback for wrapped dial errors without typed chains
+	s := strings.ToLower(err.Error())
+	return strings.Contains(s, "connection refused") || strings.Contains(s, "connection reset") || strings.Contains(s, "broken pipe")
 }
 
 func cmdVersion() {
@@ -650,10 +925,11 @@ func cmdVersion() {
 }
 
 func usage() {
-	fmt.Println("usage: client <activate|connect|status|disconnect|doctor|version|config <path|show|export|import>> [flags]")
-	fmt.Println("       client doctor -h   # list doctor flags (-control-plane, -masque-server, -strict)")
+	fmt.Println("usage: client <activate|connect|status|disconnect|doctor|connect-ip-tun|version|config <path|show|export|import>> [flags]")
+	fmt.Println("       client connect-ip-tun -h   # Linux TUN + CONNECT-IP; ADDRESS_REQUEST/ASSIGN when no -addr; needs root/CAP_NET_ADMIN for ip")
+	fmt.Println("       client doctor -h   # list doctor flags (-control-plane, -masque-server, -loki, -tcp-probe, -connect-ip, -connect-ip-rfc9484-udp, -strict)")
 	fmt.Println("       client status -h   # list status flags (-live, -json)")
-	fmt.Println("       client connect -h  # list connect flags (-check)")
+	fmt.Println("       client connect -h  # list connect flags (-check, -dry-run, -connect-retries)")
 	fmt.Println("       client activate -h # list activate flags (-verify)")
 }
 
@@ -878,6 +1154,7 @@ func applyDNS(servers []string, state *RuntimeState) error {
 	if err := os.WriteFile("/etc/resolv.conf", []byte(builder.String()), 0o644); err != nil {
 		return fmt.Errorf("write /etc/resolv.conf: %w", err)
 	}
+	state.DNSOverridden = true
 	return nil
 }
 

@@ -84,9 +84,10 @@ go run ./cmd/client doctor -connect-ip -connect-ip-udp 127.0.0.1:8444 -connect-i
 ```bash
 sudo go run ./cmd/client connect-ip-tun -h
 sudo go run ./cmd/client connect-ip-tun [-masque-server URL] [-connect-ip-udp host:port] \
-  [-tun-name NAME] [-addr 198.18.0.1/32] [-mtu 1280]
+  [-tun-name NAME] [-addr 198.18.0.1/32] [-no-address-capsule] [-mtu 1280]
 ```
 
+- **未指定 `-addr`** 时，客户端会向流上发送 **RFC 9484 ADDRESS_REQUEST**（IPv4 未指定地址），并读取服务端 **ADDRESS_ASSIGN** 胶囊后执行 **`ip addr add <分配>/前缀 dev <tun>`**（stub 常见为 **192.0.2.1/32** 等文档地址，以策略为准）。若需完全手动配置地址，使用 **`-addr`** 或 **`-no-address-capsule`**。
 - 默认服务端仍为 **echo 桩**；若开启 **`CONNECT_IP_UDP_RELAY`** / **`CONNECT_IP_ICMP_RELAY`**，则 **IPv4 UDP**（如 DNS）或 **ping** 可走真实应答，便于联调。
 - 非 Linux 平台编译出的二进制执行该子命令会提示仅支持 Linux。
 
