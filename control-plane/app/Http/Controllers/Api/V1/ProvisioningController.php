@@ -68,6 +68,49 @@ class ProvisioningController extends Controller
         ], 201);
     }
 
+    /**
+     * Issue a device activation code after verifying the account email + password.
+     * Intended for CLI "quick connect" helpers; rate-limited separately from other v1 routes.
+     */
+    public function issueActivationCodeWithCredentials(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'email' => ['required', 'email', 'max:255'],
+            'password' => ['required', 'string', 'max:255'],
+            'fingerprint' => ['required', 'string', 'max:255'],
+            'device_name' => ['nullable', 'string', 'max:100'],
+        ]);
+
+        $emailKey = mb_strtolower(trim($validated['email']));
+        $user = User::query()->whereRaw('lower(email) = ?', [$emailKey])->first();
+        if ($user === null || ! Hash::check($validated['password'], $user->password)) {
+            return response()->json(['message' => 'Invalid email or password'], 401);
+        }
+
+        $deviceName = $validated['device_name'] ?? ('quick-' . Str::slug((string) $user->name));
+
+        $rawCode = Str::upper(Str::random(4).'-'.Str::random(4));
+        $activation = ActivationCode::create([
+            'user_id' => $user->id,
+            'device_name' => $deviceName,
+            'fingerprint' => $validated['fingerprint'],
+            'code_hash' => Hash::make($rawCode),
+            'expires_at' => now()->addMinutes(20),
+        ]);
+
+        $this->audit('device.activation_code_issued', 'Activation code issued (credential bootstrap)', $request, $user->id, null, [
+            'activation_code_id' => $activation->id,
+            'device_name' => $deviceName,
+            'via' => 'credentials',
+        ]);
+
+        return response()->json([
+            'activation_code' => $rawCode,
+            'fingerprint' => $validated['fingerprint'],
+            'expires_at' => $activation->expires_at?->toIso8601String(),
+        ], 201);
+    }
+
     #[HeaderParameter('Idempotency-Key', 'Optional UUID; same key + identical body replays prior success; mismatch returns 409.', required: false, type: 'string')]
     public function activateDevice(Request $request): JsonResponse
     {
@@ -93,6 +136,13 @@ class ProvisioningController extends Controller
         }
 
         $tokenExpiresAt = now()->addHours(self::TOKEN_TTL_HOURS);
+        if (Device::query()->where('fingerprint', $activation->fingerprint)->exists()) {
+            return response()->json([
+                'message' => 'Device with this fingerprint is already registered.',
+                'hint' => 'If you still have ~/.masque-client.json, run connect only. Otherwise remove the device in admin or delete your local fingerprint file and enroll again.',
+            ], 409);
+        }
+
         $jwtToken = $this->issueDeviceJwt($activation->user_id, $activation->fingerprint, $tokenExpiresAt);
         $device = Device::create([
             'user_id' => $activation->user_id,

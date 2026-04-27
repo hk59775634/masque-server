@@ -39,12 +39,14 @@ This repository contains a closed-loop implementation and M2 upgrades:
 3. Use API to create user + activation code + policy:
    - `POST /api/v1/users`
    - `POST /api/v1/devices/activation-code`
+   - `POST /api/v1/devices/activation-code-with-credentials` (email + password + `fingerprint` + optional `device_name`; returns `activation_code` for the same `POST /api/v1/activate` flow; throttled)
    - `POST /api/v1/users/{id}/policy` or `POST /api/v1/devices/{id}/policy`
 4. Activate and connect from CLI:
    - `cd ../linux-client`
    - `go mod tidy`
    - `go run ./cmd/client version` (optional; same `-ldflags -X main.version=...` pattern as server)
    - `go run ./cmd/client activate -control-plane http://127.0.0.1:8000 -fingerprint fp-demo-001 -code XXXX-YYYY` (optional `-verify`: control plane before activate; masque `/healthz` after — masque failure only warns, config still saved)
+   - One-liner helper (prompts for email/password; stores a stable fingerprint under `~/.config/masque-linux-client/device-fingerprint`; default `connect -dry-run`): `./scripts/masque-quick-connect.sh` (set `CONTROL_PLANE_URL`, `MASQUE_CLIENT`, `CONNECT_MODE=real` for full connect)
    - `go run ./cmd/client doctor -h` (optional probes: control plane + masque `/healthz`, `-strict` requires masque URL; when capabilities advertise **TUN** per session, `doctor` also **GET `/metrics`** and expects **CONNECT-IP TUN** metric names — see [README.zh.md](./README.zh.md) doctor section)
    - `go run ./cmd/client config show` (token redacted) or `config path` / `config export` / `config import -i file [-force] [-verify]`
    - `go run ./cmd/client status -live` (local summary + `GET /api/v1/devices/self`); `status -json` / `status -json -live` for machine-readable output

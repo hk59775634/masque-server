@@ -69,6 +69,14 @@ go run ./cmd/server
 
 ## Linux 客户端（linux-client）
 
+### 一键脚本（邮箱 + 密码）
+
+仓库根目录 **`scripts/masque-quick-connect.sh`**：交互输入 **控制面账号邮箱与密码**，自动调用 **`POST /api/v1/devices/activation-code-with-credentials`**（携带本地持久化的 **`~/.config/masque-linux-client/device-fingerprint`**），再执行 **`masque-client activate -verify`** 与 **`connect`**。
+
+- 默认 **`CONTROL_PLANE_URL=https://www.afbuyers.com`**，默认 **`CONNECT_MODE=dry-run`**（不改路由；真连接：`CONNECT_MODE=real ./scripts/masque-quick-connect.sh`，会 **`sudo`**）。
+- 已存在 **`~/.masque-client.json`** 且含 `device_token` 时，**跳过登录/激活**，直接 `connect`。
+- 需已安装 **`masque-client`**（`PATH` 或设置 **`MASQUE_CLIENT=/path/to/masque-client`**）。
+
 ### 依赖能力中的 UDP 地址
 
 `GET /v1/masque/capabilities` 中 **`transport.http3_stub.listen_udp`** 若为 `:端口`，客户端会用配置里的 **`masque_server_url` 的主机名** 拼出 QUIC 的 `host:port`。

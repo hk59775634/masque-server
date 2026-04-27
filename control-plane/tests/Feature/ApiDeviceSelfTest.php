@@ -54,6 +54,37 @@ class ApiDeviceSelfTest extends TestCase
         $this->assertArrayNotHasKey('api_token_hash', $self->json('device') ?? []);
     }
 
+    public function test_issue_activation_code_with_credentials_requires_valid_login(): void
+    {
+        $this->postJson('/api/v1/users', [
+            'name' => 'Cred User',
+            'email' => 'creduser@example.com',
+            'password' => 'password123',
+        ])->assertStatus(201);
+
+        $this->postJson('/api/v1/devices/activation-code-with-credentials', [
+            'email' => 'creduser@example.com',
+            'password' => 'wrong-password',
+            'fingerprint' => 'fp-cred-bootstrap',
+            'device_name' => 'cli',
+        ])->assertStatus(401);
+
+        $resp = $this->postJson('/api/v1/devices/activation-code-with-credentials', [
+            'email' => 'creduser@example.com',
+            'password' => 'password123',
+            'fingerprint' => 'fp-cred-bootstrap',
+            'device_name' => 'cli',
+        ]);
+        $resp->assertStatus(201)
+            ->assertJsonPath('fingerprint', 'fp-cred-bootstrap');
+        $this->assertNotEmpty($resp->json('activation_code'));
+
+        $this->postJson('/api/v1/activate', [
+            'activation_code' => $resp->json('activation_code'),
+            'fingerprint' => 'fp-cred-bootstrap',
+        ])->assertOk();
+    }
+
     public function test_activate_returns_masque_server_url_from_services_config(): void
     {
         config(['services.masque.server_url' => 'http://masque.test:9443']);
