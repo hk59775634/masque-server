@@ -37,7 +37,8 @@ func capabilitiesTUNBridgeAdvertised(capJSON []byte) bool {
 
 const (
 	metricTUNBridgeActive       = "masque_connect_ip_tun_bridge_active"
-	metricTUNOpenEchoFallback = "masque_connect_ip_tun_open_echo_fallback_total"
+	metricTUNOpenEchoFallback   = "masque_connect_ip_tun_open_echo_fallback_total"
+	metricTUNLinkUpFailures     = "masque_connect_ip_tun_link_up_failures_total"
 )
 
 // doctorProbeMasqueCONNECTIPTUNMetrics GETs /metrics and checks that TUN-related series are registered.
@@ -57,5 +58,8 @@ func doctorProbeMasqueCONNECTIPTUNMetrics(ctx context.Context, client *http.Clie
 	if !strings.Contains(body, metricTUNOpenEchoFallback) {
 		return false, fmt.Sprintf("GET %s -> 200 but body lacks %q (older masque-server?)", mURL, metricTUNOpenEchoFallback)
 	}
-	return true, fmt.Sprintf("GET %s -> 200; found %s and %s", mURL, metricTUNBridgeActive, metricTUNOpenEchoFallback)
+	if !strings.Contains(body, metricTUNLinkUpFailures) {
+		return false, fmt.Sprintf("GET %s -> 200 but body lacks %q (older masque-server?)", mURL, metricTUNLinkUpFailures)
+	}
+	return true, fmt.Sprintf("GET %s -> 200; found %s, %s and %s", mURL, metricTUNBridgeActive, metricTUNOpenEchoFallback, metricTUNLinkUpFailures)
 }

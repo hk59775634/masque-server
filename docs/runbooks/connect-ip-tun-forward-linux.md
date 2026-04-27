@@ -34,11 +34,16 @@ sudo iptables -t nat -A POSTROUTING -o <wan> -j MASQUERADE
 
 - **`masque_connect_ip_tun_bridge_active`**: gauge — streams currently in the TUN bridge loop.
 - **`masque_connect_ip_tun_open_echo_fallback_total`**: counter — **`CONNECT_IP_TUN_FORWARD`** was on but **`openConnectIPTunForward`** failed (permission, missing `/dev/net/tun`, etc.); the stream used **echo** instead.
+- **`masque_connect_ip_tun_link_up_failures_total`**: counter — **`CONNECT_IP_TUN_LINK_UP`** attempted `ip link set up` but failed (`ip` missing in `PATH`, insufficient capabilities, invalid interface state/name, etc.).
 
 Grafana **`ops/observability/grafana/dashboards/masque-overview.json`** includes panels for both series.
 
 ## Alerts
 
-Prometheus rule **`MasqueConnectIPTunOpenEchoFallback`** (`ops/observability/prometheus/alerts.yml`): fires when the **fallback counter rate** is above zero for **10 minutes** — usually misconfiguration or missing privileges while **`CONNECT_IP_TUN_FORWARD`** is enabled. The rule sets annotation **`runbook_url`** to this document (GitHub `blob/main` URL in-repo; override in forks if needed). **Alertmanager** forwards annotations to receivers (see `ops/observability/alertmanager/alertmanager.yml` header comment).
+Prometheus rules in `ops/observability/prometheus/alerts.yml`:
+- **`MasqueConnectIPTunOpenEchoFallback`**: fallback counter rate above zero for 10 minutes.
+- **`MasqueConnectIPTunLinkUpFailures`**: link-up failure counter rate above zero for 10 minutes.
+
+Both set annotation **`runbook_url`** to this document (GitHub `blob/main` URL in-repo; override in forks if needed). **Alertmanager** forwards annotations to receivers (see `ops/observability/alertmanager/alertmanager.yml` header comment).
 
 See also **`GET /v1/masque/capabilities`** (`quic.connect_ip.dev.tun_forward_env`) and [README.zh.md](../../README.zh.md) (CONNECT-IP metrics list). **Linux client:** `doctor` checks **`/metrics`** for TUN series when capabilities report **`tun_linux_per_session`**.

@@ -100,4 +100,7 @@ type ListenConfig struct {
 	// ConnectIPTunLinkUp (Linux): after a successful TUN open, run `ip link set dev <if> up` (CONNECT_IP_TUN_LINK_UP).
 	// Requires `ip` in PATH and typically CAP_NET_ADMIN in addition to TUN access.
 	ConnectIPTunLinkUp bool
+
+	// ConnectIPTunLinkUpFailures, if non-nil, counts failed CONNECT_IP_TUN_LINK_UP attempts (ip not found or command error).
+	ConnectIPTunLinkUpFailures prometheus.Counter
 }

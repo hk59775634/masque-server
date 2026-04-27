@@ -266,6 +266,7 @@ func main() {
 				ConnectIPTunBridgeActive:        metrics.connectIPTunBridgeActive,
 				ConnectIPTunOpenEchoFallbacks:   metrics.connectIPTunOpenEchoFallbacks,
 				ConnectIPTunLinkUp:              connectIPTunLinkUp,
+				ConnectIPTunLinkUpFailures:      metrics.connectIPTunLinkUpFailures,
 			}
 			if !skipConnectIPAuth {
 				cfg.Authorizer = cpClient
@@ -368,7 +369,8 @@ type serverMetrics struct {
 	connectIPICMPRelayReplies       prometheus.Counter
 	connectIPICMPRelayErrors        *prometheus.CounterVec
 	connectIPTunBridgeActive        prometheus.Gauge
-	connectIPTunOpenEchoFallbacks prometheus.Counter
+	connectIPTunOpenEchoFallbacks   prometheus.Counter
+	connectIPTunLinkUpFailures      prometheus.Counter
 	healthChecksTotal               prometheus.Counter
 }
 
@@ -477,6 +479,10 @@ func newServerMetrics(registry *prometheus.Registry) *serverMetrics {
 			Name: "masque_connect_ip_tun_open_echo_fallback_total",
 			Help: "CONNECT_IP_TUN_FORWARD was enabled but opening the per-session TUN failed; stream used echo mode instead.",
 		}),
+		connectIPTunLinkUpFailures: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "masque_connect_ip_tun_link_up_failures_total",
+			Help: "CONNECT_IP_TUN_LINK_UP attempted to run `ip link set up` but failed.",
+		}),
 		healthChecksTotal: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "masque_healthz_requests_total",
 			Help: "Total health endpoint hits.",
@@ -509,6 +515,7 @@ func newServerMetrics(registry *prometheus.Registry) *serverMetrics {
 		m.connectIPICMPRelayErrors,
 		m.connectIPTunBridgeActive,
 		m.connectIPTunOpenEchoFallbacks,
+		m.connectIPTunLinkUpFailures,
 		m.healthChecksTotal,
 	)
 

@@ -139,6 +139,22 @@
       ],
       "title": "CONNECT-IP TUN open → echo fallback rate",
       "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" } }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 40 },
+      "id": 10,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "single" } },
+      "targets": [
+        {
+          "expr": "sum(rate(masque_connect_ip_tun_link_up_failures_total[5m]))",
+          "legendFormat": "link-up-fail/s",
+          "refId": "A"
+        }
+      ],
+      "title": "CONNECT-IP TUN link-up failure rate",
+      "type": "timeseries"
     }
   ],
   "refresh": "10s",
@@ -150,6 +166,6 @@
   "timepicker": {},
   "timezone": "",
   "title": "MASQUE Server Overview",
-  "version": 4,
+  "version": 5,
   "weekStart": ""
 }

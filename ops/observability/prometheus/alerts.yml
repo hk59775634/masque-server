@@ -83,3 +83,15 @@ groups:
           summary: "CONNECT-IP TUN forward enabled but host TUN open failed (echo fallback)"
           description: "CONNECT_IP_TUN_FORWARD is on but per-session /dev/net/tun open keeps failing (check CAP_NET_ADMIN/root, device node, or CONNECT_IP_TUN_NAME)."
           runbook_url: "https://github.com/afbuyers/masque-server/blob/main/docs/runbooks/connect-ip-tun-forward-linux.md"
+
+      - alert: MasqueConnectIPTunLinkUpFailures
+        expr: |
+          sum(rate(masque_connect_ip_tun_link_up_failures_total[5m])) > 0
+        for: 10m
+        labels:
+          severity: warning
+          service: masque-server
+        annotations:
+          summary: "CONNECT-IP TUN link-up command failed"
+          description: "CONNECT_IP_TUN_LINK_UP is enabled but ip link set up is failing (check ip(8) in PATH and CAP_NET_ADMIN/root)."
+          runbook_url: "https://github.com/afbuyers/masque-server/blob/main/docs/runbooks/connect-ip-tun-forward-linux.md"

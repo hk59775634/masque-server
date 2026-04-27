@@ -2,4 +2,4 @@
 
 package http3stub
 
-func maybeBringUpConnectIPTun(ifName string, enabled bool) {}
+func maybeBringUpConnectIPTun(ifName string, enabled bool) bool { return true }
