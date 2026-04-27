@@ -69,6 +69,7 @@ print(json.dumps({"email": email, "password": password, "fingerprint": fp, "devi
 	URL="${CP}/api/v1/devices/activation-code-with-credentials"
 	HTTP_CODE="$(curl -sS -o /tmp/masque-quick-code.json -w '%{http_code}' \
 		-X POST "${URL}" \
+		-H 'Accept: application/json' \
 		-H 'Content-Type: application/json' \
 		--data-binary "@${TMP_BODY}")" || true
 
