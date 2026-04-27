@@ -44,10 +44,11 @@ func cmdConnectIPTun(args []string) {
 	fs.StringVar(&routeMode, "route", "", "IPv4 routing: empty (honour -split-default-route only), none, split, or all (all = split)")
 	var dnsCSV string
 	fs.StringVar(&dnsCSV, "dns", "", "comma-separated resolvers; overwrites /etc/resolv.conf with backup (root); restored on exit")
+	dnsResolvectl := fs.Bool("dns-resolvectl", false, "with -dns: use `resolvectl dns` on the IPv4 default-route interface and `resolvectl revert` on exit (systemd-resolved); needs resolvectl and typically root")
 	bypassMasqueHost := fs.Bool("bypass-masque-host", true, "with -route split|all (or -split-default-route): add /32 for QUIC server (and masque HTTPS host if different) via system default gateway (anti black-hole)")
 	reconnectMaxSessionDrops := fs.Int("reconnect-max-session-drops", 0, "exit after this many consecutive session drops after a successful dial (0 = unlimited; resets on each successful dial)")
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "usage: client connect-ip-tun [-masque-server URL] [-connect-ip-udp host:port] [-tun-name NAME] [-addr CIDR] [-no-address-capsule] [-apply-routes-from-capsule] [-route none|split|all] [-split-default-route] [-dns 1.1.1.1,8.8.8.8] [-bypass-masque-host=true] [-mtu N] [-up=false] [-reconnect] [-reconnect-initial-backoff 1s] [-reconnect-max-backoff 15s] [-reconnect-max-dial-failures N] [-reconnect-max-session-drops N] [-reconnect-log-interval 30s]\n")
+		fmt.Fprintf(os.Stderr, "usage: client connect-ip-tun [-masque-server URL] [-connect-ip-udp host:port] [-tun-name NAME] [-addr CIDR] [-no-address-capsule] [-apply-routes-from-capsule] [-route none|split|all] [-split-default-route] [-dns 1.1.1.1,8.8.8.8] [-dns-resolvectl] [-bypass-masque-host=true] [-mtu N] [-up=false] [-reconnect] [-reconnect-initial-backoff 1s] [-reconnect-max-backoff 15s] [-reconnect-max-dial-failures N] [-reconnect-max-session-drops N] [-reconnect-log-interval 30s]\n")
 		fmt.Fprintf(os.Stderr, "  Linux only. Opens CONNECT-IP, creates TUN, maps TUN <-> RFC 9484 CID0 datagrams. Ctrl+C to exit.\n")
 		fs.PrintDefaults()
 	}
@@ -159,14 +160,27 @@ func cmdConnectIPTun(args []string) {
 	}
 
 	if len(dnsList) > 0 {
-		restore, derr := applyTunDNS(dnsList)
-		if derr != nil {
-			_ = tunFile.Close()
-			fmt.Fprintf(os.Stderr, "error: -dns: %v\n", derr)
-			os.Exit(1)
+		var restore func()
+		var derr error
+		if *dnsResolvectl {
+			restore, derr = applyTunDNSViaResolvectl(dnsList)
+			if derr != nil {
+				_ = tunFile.Close()
+				fmt.Fprintf(os.Stderr, "error: -dns -dns-resolvectl: %v\n", derr)
+				os.Exit(1)
+			}
+			dnsRestore = restore
+			log.Printf("connect-ip-tun: applied -dns via resolvectl (%d nameserver(s))", len(dnsList))
+		} else {
+			restore, derr = applyTunDNS(dnsList)
+			if derr != nil {
+				_ = tunFile.Close()
+				fmt.Fprintf(os.Stderr, "error: -dns: %v\n", derr)
+				os.Exit(1)
+			}
+			dnsRestore = restore
+			log.Printf("connect-ip-tun: wrote /etc/resolv.conf with %d nameserver(s)", len(dnsList))
 		}
-		dnsRestore = restore
-		log.Printf("connect-ip-tun: wrote /etc/resolv.conf with %d nameserver(s)", len(dnsList))
 	}
 
 	if doSplitRoutes {

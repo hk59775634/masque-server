@@ -88,7 +88,7 @@ go run ./cmd/client doctor -connect-ip -connect-ip-udp 127.0.0.1:8444 -connect-i
 sudo go run ./cmd/client connect-ip-tun -h
 sudo go run ./cmd/client connect-ip-tun [-masque-server URL] [-connect-ip-udp host:port] \
   [-tun-name NAME] [-addr 198.18.0.1/32] [-no-address-capsule] \
-  [-apply-routes-from-capsule] [-route split|all] [-dns 1.1.1.1,8.8.8.8] [-mtu 1280] [-reconnect=true] \
+  [-apply-routes-from-capsule] [-route split|all] [-dns 1.1.1.1,8.8.8.8] [-dns-resolvectl] [-mtu 1280] [-reconnect=true] \
   [-reconnect-initial-backoff 1s] [-reconnect-max-backoff 15s] \
   [-reconnect-max-dial-failures 0] [-reconnect-max-session-drops 0] [-reconnect-log-interval 30s]
 ```
@@ -101,7 +101,8 @@ sudo go run ./cmd/client connect-ip-tun [-masque-server URL] [-connect-ip-udp ho
 - **`-reconnect-max-session-drops N`**：`N>0` 时，在**已成功拨号**之后，若连续 **N** 次会话异常结束则退出（每次成功拨号后计数清零；`0` 不限制）。
 - **`-route split`** 或 **`-route all`**（与 **`-split-default-route`** 二选一即可，`all` 为 `split` 别名）：安装 **IPv4 分段默认路由** `0.0.0.0/1` 与 `128.0.0.0/1` 经 TUN（对齐 `开发需求.md` §7.3）；**`-route none`** 显式关闭，且会覆盖 `-split-default-route`；退出时自动删除。
 - **`-split-default-route`**：与 **`-route split`** 等价（保留兼容）；更推荐 **`-route`**。
-- **`-dns a,b,c`**：覆盖 **`/etc/resolv.conf`**（先读备份，进程退出时恢复）；**需要 root**；若检测到 **`systemd-resolved` stub** 链到该文件，会打一条 **warn**（完整 resolved 集成仍属生产项）。
+- **`-dns a,b,c`**：覆盖 **`/etc/resolv.conf`**（先读备份，进程退出时恢复）；**需要 root**；若检测到 **`systemd-resolved` stub** 链到该文件，会打一条 **warn**。
+- **`-dns-resolvectl`**（与 **`-dns`** 联用）：走 **`resolvectl dns <默认路由网卡> …`**，退出时 **`resolvectl revert`**（需 **`resolvectl`** 与 **systemd-resolved**；通常仍需 **root**）。适合桌面环境避免直接改 stub **`resolv.conf`**。
 - **`-bypass-masque-host`**（默认 `true`，且仅在启用分段默认路由时生效）：为 **QUIC 目标主机**（及 `-masque-server` 若解析出不同 IPv4）添加 **`/32` 经当前默认网关** 的绕行，避免黑洞。
 - 默认服务端仍为 **echo 桩**；若开启 **`CONNECT_IP_UDP_RELAY`** / **`CONNECT_IP_ICMP_RELAY`**，则 **IPv4 UDP**（如 DNS）或 **ping** 可走真实应答，便于联调。
 - 非 Linux 平台编译出的二进制执行该子命令会提示仅支持 Linux。

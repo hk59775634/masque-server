@@ -6,15 +6,40 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"strings"
 )
 
 // applyTunDNS backs up /etc/resolv.conf, overwrites with nameserver lines, and returns restore.
+// applyTunDNSViaResolvectl sets per-link DNS on the IPv4 default-route interface (systemd-resolved).
+func applyTunDNSViaResolvectl(servers []string) (restore func(), err error) {
+	if len(servers) == 0 {
+		return func() {}, nil
+	}
+	if _, err := exec.LookPath("resolvectl"); err != nil {
+		return nil, fmt.Errorf("resolvectl not in PATH: %w", err)
+	}
+	_, dev, err := defaultIPv4Gateway()
+	if err != nil {
+		return nil, fmt.Errorf("default IPv4 interface: %w", err)
+	}
+	args := append([]string{"dns", dev}, servers...)
+	out, err := exec.Command("resolvectl", args...).CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("resolvectl %v: %w: %s", args, err, strings.TrimSpace(string(out)))
+	}
+	return func() {
+		_ = exec.Command("resolvectl", "revert", dev).Run()
+	}, nil
+}
+
 func applyTunDNS(servers []string) (restore func(), err error) {
 	if len(servers) == 0 {
 		return func() {}, nil
 	}
-	warnIfStubResolvConf()
+	if isStubResolvConf() {
+		log.Printf("connect-ip-tun: warn: /etc/resolv.conf points at systemd-resolved stub; overwriting may not affect all apps — use -dns-resolvectl on systems with systemd-resolved")
+	}
 	backup, err := os.ReadFile("/etc/resolv.conf")
 	if err != nil {
 		backup = nil
@@ -45,14 +70,12 @@ func applyTunDNS(servers []string) (restore func(), err error) {
 	}, nil
 }
 
-func warnIfStubResolvConf() {
+func isStubResolvConf() bool {
 	target, err := os.Readlink("/etc/resolv.conf")
 	if err != nil {
-		return
+		return false
 	}
-	if strings.Contains(target, "systemd/resolve/stub-resolv.conf") {
-		log.Printf("connect-ip-tun: warn: /etc/resolv.conf -> %q (systemd-resolved stub); overwriting may not affect apps using resolved directly — consider `resolvectl dns` or manage DNS outside this CLI", target)
-	}
+	return strings.Contains(target, "systemd/resolve/stub-resolv.conf")
 }
 
 func parseCommaList(s string) []string {
