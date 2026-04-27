@@ -1,6 +1,9 @@
 package capabilities
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestBuild_QUICOff(t *testing.T) {
 	doc := Build(Params{
@@ -135,6 +138,40 @@ func TestBuild_MainListenerTLS(t *testing.T) {
 	tls, ok := tr["tls"].(map[string]any)
 	if !ok || tls["enabled"] != true {
 		t.Fatalf("transport.tls: %v", tr["tls"])
+	}
+}
+
+func TestBuild_QUICOnTunKernelForward(t *testing.T) {
+	doc := Build(Params{
+		Version:                   "test",
+		TCPListenAddr:             ":8443",
+		ControlPlaneBaseURL:       "http://127.0.0.1:8000",
+		QUICListenAddr:            ":8444",
+		ConnectIPTunKernelForward: true,
+	})
+	tun := doc["tunnel"].(map[string]any)
+	quic := tun["quic"].(map[string]any)
+	ci := quic["connect_ip"].(map[string]any)
+	dg := ci["http3_datagrams"].(map[string]any)
+	if dg["tun_linux_per_session"] != true {
+		t.Fatalf("tun_linux_per_session: %v", dg["tun_linux_per_session"])
+	}
+	note := dg["note"].(string)
+	if !strings.Contains(note, "CONNECT_IP_TUN_FORWARD") {
+		t.Fatalf("http3_datagrams.note should mention CONNECT_IP_TUN_FORWARD: %q", note)
+	}
+	dev := ci["dev"].(map[string]any)
+	if _, ok := dev["tun_forward_env"]; !ok {
+		t.Fatal("expected dev.tun_forward_env")
+	}
+	rfc := ci["rfc9484"].(map[string]any)
+	ni := rfc["not_implemented"].([]string)
+	var joined string
+	for _, s := range ni {
+		joined += s + " "
+	}
+	if !strings.Contains(joined, "in-process SNAT") {
+		t.Fatalf("not_implemented: %v", ni)
 	}
 }
 

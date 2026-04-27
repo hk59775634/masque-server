@@ -82,4 +82,12 @@ type ListenConfig struct {
 	// ConnectIPRoutePushResults, if non-nil, counts proactive ROUTE_ADVERTISEMENT push outcomes
 	// (result labels: sent, invalid_cidr, acl_denied, encode_error, write_error).
 	ConnectIPRoutePushResults *prometheus.CounterVec
+
+	// ConnectIPTunForward (Linux only): after ACL, IPv4/UDP and IPv4 ICMP relay unchanged; other IP-shaped
+	// Context ID 0 payloads are written to a per-session host TUN instead of echoed. Packets read from the TUN
+	// are sent to the client as RFC 9484 Context ID 0 datagrams. Requires /dev/net/tun (typically root or
+	// CAP_NET_ADMIN). SNAT and default routing are not configured by masque-server — see CONNECT_IP_TUN_FORWARD docs.
+	ConnectIPTunForward bool
+	// ConnectIPTunName is passed to TUNSETIFF (may be empty for kernel-assigned name).
+	ConnectIPTunName string
 }

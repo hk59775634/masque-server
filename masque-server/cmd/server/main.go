@@ -70,6 +70,15 @@ func main() {
 	connectIPUDPRelay := isTruthyEnv("CONNECT_IP_UDP_RELAY")
 	connectIPICMPRelay := isTruthyEnv("CONNECT_IP_ICMP_RELAY")
 	connectIPRouteAdvCIDR := strings.TrimSpace(os.Getenv("CONNECT_IP_ROUTE_ADV_CIDR"))
+	connectIPTunForward := false
+	if isTruthyEnv("CONNECT_IP_TUN_FORWARD") {
+		if runtime.GOOS == "linux" {
+			connectIPTunForward = true
+		} else {
+			log.Printf("CONNECT_IP_TUN_FORWARD is set but ignored (GOOS=%s)", runtime.GOOS)
+		}
+	}
+	connectIPTunName := strings.TrimSpace(os.Getenv("CONNECT_IP_TUN_NAME"))
 	capParams := capabilities.Params{
 		Version:                      version,
 		TCPListenAddr:                listenAddr,
@@ -79,6 +88,7 @@ func main() {
 		ConnectIPUDPRelayIPv4:        connectIPUDPRelay,
 		ConnectIPICMPRelayIPv4:       connectIPICMPRelay,
 		ConnectIPRouteAdvertPushCIDR: connectIPRouteAdvCIDR,
+		ConnectIPTunKernelForward:    connectIPTunForward,
 	}
 
 	router := chi.NewRouter()
@@ -249,6 +259,8 @@ func main() {
 				ConnectIPICMPRelay:              connectIPICMPRelay,
 				ConnectIPICMPRelayReplies:       metrics.connectIPICMPRelayReplies,
 				ConnectIPICMPRelayErrors:        metrics.connectIPICMPRelayErrors,
+				ConnectIPTunForward:             connectIPTunForward,
+				ConnectIPTunName:                connectIPTunName,
 			}
 			if !skipConnectIPAuth {
 				cfg.Authorizer = cpClient
@@ -267,6 +279,9 @@ func main() {
 			}
 			if connectIPRouteAdvCIDR != "" {
 				log.Printf("CONNECT_IP_ROUTE_ADV_CIDR=%s: server may push ROUTE_ADVERTISEMENT after 200 when ACL covers the range", connectIPRouteAdvCIDR)
+			}
+			if connectIPTunForward {
+				log.Printf("CONNECT_IP_TUN_FORWARD: per-session host TUN bridge (CONNECT_IP_TUN_NAME=%q); sysctl net.ipv4.ip_forward and iptables SNAT (e.g. MASQUERADE) are operator-managed, not applied by masque-server", connectIPTunName)
 			}
 			if err := http3stub.Listen(cfg); err != nil {
 				log.Printf("QUIC HTTP/3 stub: %v", err)

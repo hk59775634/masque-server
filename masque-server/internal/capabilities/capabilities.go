@@ -13,6 +13,8 @@ type Params struct {
 	ConnectIPICMPRelayIPv4 bool   // CONNECT_IP_ICMP_RELAY: optional IPv4 ICMP Echo relay on CONNECT-IP
 	// ConnectIPRouteAdvertPushCIDR: CONNECT_IP_ROUTE_ADV_CIDR; optional IPv4 CIDR for one outbound ROUTE_ADVERTISEMENT after 200 (ACL must cover start–end).
 	ConnectIPRouteAdvertPushCIDR string
+	// ConnectIPTunKernelForward: CONNECT_IP_TUN_FORWARD on a Linux masque host (per-session TUN bridge; SNAT/routing not in-process).
+	ConnectIPTunKernelForward bool
 }
 
 // Build returns the capabilities document shared by TCP and QUIC listeners.
@@ -33,6 +35,9 @@ func Build(p Params) map[string]any {
 		if p.ConnectIPICMPRelayIPv4 {
 			dgNote += " CONNECT_IP_ICMP_RELAY=1: IPv4 ICMP Echo (ping) may be relayed after ACL (typically requires root / CAP_NET_RAW)."
 		}
+		if p.ConnectIPTunKernelForward {
+			dgNote += " CONNECT_IP_TUN_FORWARD=1 (Linux): allowed Context ID 0 IP packets may be written to a per-session host TUN; replies from the TUN are sent to the client. Host sysctl/iptables SNAT and routing are operator-managed."
+		}
 		http3dg := map[string]any{
 			"settings": "RFC 9297 HTTP Datagrams negotiated (H3_DATAGRAM); QUIC datagram extension enabled on listener",
 			"echo":     true,
@@ -43,6 +48,9 @@ func Build(p Params) map[string]any {
 		}
 		if p.ConnectIPICMPRelayIPv4 {
 			http3dg["icmp_ipv4_echo_relay"] = true
+		}
+		if p.ConnectIPTunKernelForward {
+			http3dg["tun_linux_per_session"] = true
 		}
 		switch {
 		case p.ConnectIPUDPRelayIPv4 && p.ConnectIPICMPRelayIPv4:
@@ -76,7 +84,13 @@ func Build(p Params) map[string]any {
 				"decode":          []string{"ADDRESS_ASSIGN (0x01)", "ADDRESS_REQUEST (0x02)", "ROUTE_ADVERTISEMENT (0x03)"},
 				"route_policy":    "each ROUTE_ADVERTISEMENT range must fall entirely inside one device ACL allow.cidr (same rule covers start and end); empty ACL allows all",
 				"outbound_route":  "optional: after 200 the server may write one ROUTE_ADVERTISEMENT when CONNECT_IP_ROUTE_ADV_CIDR is set and the inclusive IPv4 range fits ACL",
-				"not_implemented": []string{"CONNECT-IP TCP or IPv6 datagram relay", "CONNECT-IP kernel forward / full router"},
+				"not_implemented": func() []string {
+					out := []string{"CONNECT-IP TCP or IPv6 datagram relay"}
+					if p.ConnectIPTunKernelForward {
+						return append(out, "CONNECT-IP in-process SNAT or full carrier-grade routing")
+					}
+					return append(out, "CONNECT-IP kernel forward / full router")
+				}(),
 				"address_assign_reply": map[string]any{
 					"stub": true,
 					"note": "ADDRESS_REQUEST is answered with ADDRESS_ASSIGN using documentation addresses (192.0.2.1/32, 2001:db8::1/128) unless the client requests a specific IP that passes ACL",
@@ -84,10 +98,17 @@ func Build(p Params) map[string]any {
 			},
 			"note": func() string {
 				s := "200 then RFC 9297 (SETTINGS datagrams) + RFC 9484 capsules; ROUTE vs ACL; stub ADDRESS_ASSIGN after ADDRESS_REQUEST"
+				var tail []string
 				if p.ConnectIPUDPRelayIPv4 {
-					return s + "; CONNECT_IP_UDP_RELAY enables optional IPv4/UDP relay (see http3_datagrams)"
+					tail = append(tail, "CONNECT_IP_UDP_RELAY enables optional IPv4/UDP relay (see http3_datagrams)")
 				}
-				return s + "; no server-side TUN"
+				if p.ConnectIPTunKernelForward {
+					tail = append(tail, "CONNECT_IP_TUN_FORWARD: Linux per-session TUN bridge (operator sysctl/iptables for SNAT)")
+				}
+				if len(tail) == 0 {
+					return s + "; no server-side TUN"
+				}
+				return s + "; " + strings.Join(tail, "; ")
 			}(),
 			"dev": map[string]any{
 				"skip_auth_env":      "CONNECT_IP_SKIP_AUTH or MASQUE_CONNECT_IP_SKIP_AUTH = 1|true|yes|on disables Bearer/Device-Fingerprint (not for production)",
@@ -95,6 +116,7 @@ func Build(p Params) map[string]any {
 				"udp_relay_env":      "CONNECT_IP_UDP_RELAY=1|true|yes|on enables optional IPv4/UDP user-space relay for Context ID 0 datagrams after ACL (not for production without review)",
 				"icmp_relay_env":     "CONNECT_IP_ICMP_RELAY=1|true|yes|on enables optional IPv4 ICMP Echo relay (ping) after ACL; typically requires root or CAP_NET_RAW",
 				"route_adv_push_env": "CONNECT_IP_ROUTE_ADV_CIDR=<ipv4/cidr>: optional; server sends one ROUTE_ADVERTISEMENT after 200 when the inclusive range fits device ACL (same rule as inbound routes)",
+				"tun_forward_env":    "CONNECT_IP_TUN_FORWARD=1|true|yes|on (Linux only): per-session TUN for ACL-allowed IP datagrams; CONNECT_IP_TUN_NAME optional (TUNSETIFF); requires /dev/net/tun (typically root). SNAT (e.g. iptables MASQUERADE) and ip_forward are not applied by masque-server.",
 			},
 		}
 		if p.ConnectIPRouteAdvertPushCIDR != "" {
@@ -153,14 +175,18 @@ func Build(p Params) map[string]any {
 					n := "QUIC listener: CONNECT-IP with authorize + RFC 9484 capsules + RFC 9297 datagrams (RFC 9484 Context ID peel; IP ACL like POST /connect)"
 					switch {
 					case p.ConnectIPUDPRelayIPv4 && p.ConnectIPICMPRelayIPv4:
-						return n + "; CONNECT_IP_UDP_RELAY + CONNECT_IP_ICMP_RELAY: IPv4/UDP and ICMP Echo may be relayed"
+						n += "; CONNECT_IP_UDP_RELAY + CONNECT_IP_ICMP_RELAY: IPv4/UDP and ICMP Echo may be relayed"
 					case p.ConnectIPUDPRelayIPv4:
-						return n + "; CONNECT_IP_UDP_RELAY on: IPv4/UDP may be relayed to the inner destination"
+						n += "; CONNECT_IP_UDP_RELAY on: IPv4/UDP may be relayed to the inner destination"
 					case p.ConnectIPICMPRelayIPv4:
-						return n + "; CONNECT_IP_ICMP_RELAY on: IPv4 ICMP Echo may be relayed"
+						n += "; CONNECT_IP_ICMP_RELAY on: IPv4 ICMP Echo may be relayed"
 					default:
-						return n + "; default echo stub (set CONNECT_IP_UDP_RELAY / CONNECT_IP_ICMP_RELAY for user-space relay)"
+						n += "; default echo stub (set CONNECT_IP_UDP_RELAY / CONNECT_IP_ICMP_RELAY for user-space relay)"
 					}
+					if p.ConnectIPTunKernelForward {
+						n += "; CONNECT_IP_TUN_FORWARD: optional Linux per-session TUN bridge"
+					}
+					return n
 				}(),
 			},
 		},

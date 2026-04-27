@@ -48,7 +48,7 @@ func bearerDeviceToken(h http.Header) (tok string, ok bool) {
 // RFC 9484 ADDRESS_REQUEST / ROUTE_ADVERTISEMENT / ADDRESS_ASSIGN payloads are decoded;
 // ROUTE_ADVERTISEMENT ranges must lie within a single device ACL "allow" CIDR.
 // ADDRESS_REQUEST is answered with a stub ADDRESS_ASSIGN (192.0.2.1/32 or 2001:db8::1/128 when unspecified; preferred addresses must pass ACL).
-// HTTP Datagrams (RFC 9297): RFC 9484 Context ID (varint) is peeled when present; unknown non-zero IDs drop unless CONNECT_IP_STUB_ECHO_CONTEXTS allowlist (dev); inner IPv4/IPv6 is ACL-checked then echoed unless CONNECT_IP_UDP_RELAY (IPv4/UDP) or CONNECT_IP_ICMP_RELAY (IPv4 ICMP Echo) handles the packet (user-space relay + reply). Opaque inner payloads are echoed (not kernel routing).
+// HTTP Datagrams (RFC 9297): RFC 9484 Context ID (varint) is peeled when present; unknown non-zero IDs drop unless CONNECT_IP_STUB_ECHO_CONTEXTS allowlist (dev); inner IPv4/IPv6 is ACL-checked then echoed unless CONNECT_IP_UDP_RELAY (IPv4/UDP) or CONNECT_IP_ICMP_RELAY (IPv4 ICMP Echo) handles the packet (user-space relay + reply), or CONNECT_IP_TUN_FORWARD (Linux) writes allowed IP payloads to a per-session TUN. Opaque inner payloads are echoed. SNAT is not configured in-process.
 func serveConnectIPStub(w http.ResponseWriter, r *http.Request, cfg ListenConfig) {
 	if r.URL == nil || r.URL.Scheme == "" || r.URL.Host == "" || r.URL.Path == "" {
 		incConnectIP(cfg, "bad_request")
