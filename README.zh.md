@@ -15,7 +15,7 @@
 
 - **Phase 1（M1–M4）**：控制面 + masque 最小桩 + Linux 客户端 + 可观测/部署材料；见 `docs/release-notes/`、`docs/runbooks/`。
 - **Phase 2a**：**`POST /v1/masque/tcp-probe`**（服务端代拨 TCP）、主监听可选 **HTTPS**、能力字段 `tunnel.phase2a`。
-- **Phase 2b（stub，本仓库已闭环）**：**CONNECT-IP 桩** + Linux **`connect-ip-tun`**（TUN、胶囊、分段默认路由、DNS 覆盖与退出恢复、**`-dns-resolvectl` 失败时可回退 `resolv.conf`（`-dns-resolvectl-fallback`）**、重连与运维向参数、`doctor -connect-ip`）；可选 **`CONNECT_IP_UDP_RELAY`** / **`CONNECT_IP_ICMP_RELAY`** / **`CONNECT_IP_ROUTE_ADV_CIDR`**；masque 在 **Linux** 上可选 **`CONNECT_IP_TUN_FORWARD`**（**每会话 host TUN 桥**，进程内不配置 SNAT）与可选 **`CONNECT_IP_TUN_LINK_UP`**（**`ip link up`**）。**仍非** masque 侧托管 NAT / 全协议生产级 VPN。
+- **Phase 2b（stub，本仓库已闭环）**：**CONNECT-IP 桩** + Linux **`connect-ip-tun`**（TUN、胶囊、分段默认路由、DNS 覆盖与退出恢复、**`-dns-resolvectl` 失败时可回退 `resolv.conf`（`-dns-resolvectl-fallback`）**、重连与运维向参数、`doctor -connect-ip`）；可选 **`CONNECT_IP_UDP_RELAY`** / **`CONNECT_IP_ICMP_RELAY`** / **`CONNECT_IP_ROUTE_ADV_CIDR`**；masque 在 **Linux** 上可选 **`CONNECT_IP_TUN_FORWARD`**（内核 TUN 转发）+ **`CONNECT_IP_TUN_SHARED`**（共享 TUN + 目的 IP 分流）+ **`CONNECT_IP_TUN_LINK_UP`**（`ip link up`）+ **`CONNECT_IP_TUN_MANAGED_NAT`**（托管 NAT 自动化，需 egress 配置）。**仍非** masque 侧全量策略管理器。
 - **Phase 2b（生产级，仍待办）**：设备 **mTLS**、控制面↔masque **双向 TLS / 非 REST 硬化**、**RBAC**、服务端 **托管 NAT 拓扑与全 TCP·IPv6 内核路径**（见 `开发需求.md` §6）。
 
 ## QUIC / CONNECT-IP 桩（masque-server）
@@ -122,7 +122,7 @@ sudo go run ./cmd/client connect-ip-tun [-masque-server URL] [-connect-ip-udp ho
 
 ## 安全提示
 
-- **`CONNECT_IP_SKIP_AUTH`**、**`CONNECT_IP_STUB_ECHO_CONTEXTS`**、**`CONNECT_IP_UDP_RELAY`**、**`CONNECT_IP_ICMP_RELAY`**、**`CONNECT_IP_TUN_FORWARD`**、**`CONNECT_IP_TUN_LINK_UP`**、**`CONNECT_IP_TUN_MANAGED_NAT`** 均可能扩大攻击面，仅应在受控环境使用。
+- **`CONNECT_IP_SKIP_AUTH`**、**`CONNECT_IP_STUB_ECHO_CONTEXTS`**、**`CONNECT_IP_UDP_RELAY`**、**`CONNECT_IP_ICMP_RELAY`**、**`CONNECT_IP_TUN_FORWARD`**、**`CONNECT_IP_TUN_SHARED`**、**`CONNECT_IP_TUN_LINK_UP`**、**`CONNECT_IP_TUN_MANAGED_NAT`** 均可能扩大攻击面，仅应在受控环境使用。
 - 生产环境应使用正式 TLS、强制设备鉴权，并对中继与路由做独立安全评审。
 
 ## 告警 Mock 接收器提示配置

@@ -88,6 +88,9 @@ type ListenConfig struct {
 	// are sent to the client as RFC 9484 Context ID 0 datagrams. Requires /dev/net/tun (typically root or
 	// CAP_NET_ADMIN). SNAT and default routing are not configured by masque-server — see CONNECT_IP_TUN_FORWARD docs.
 	ConnectIPTunForward bool
+	// ConnectIPTunShared (Linux): when true with ConnectIPTunForward, all CONNECT-IP streams share one host TUN
+	// and packets read from TUN are demultiplexed back to streams by destination IP learned from inbound source IPs.
+	ConnectIPTunShared bool
 	// ConnectIPTunName is passed to TUNSETIFF (may be empty for kernel-assigned name).
 	ConnectIPTunName string
 

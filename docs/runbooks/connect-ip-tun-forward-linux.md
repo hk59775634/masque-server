@@ -12,6 +12,8 @@ Optional **`CONNECT_IP_TUN_MANAGED_NAT=1`** (with **`CONNECT_IP_TUN_FORWARD`**):
 
 This is a minimal bootstrap, not a full firewall policy manager. Existing host security controls remain your responsibility.
 
+Optional **`CONNECT_IP_TUN_SHARED=1`** (with **`CONNECT_IP_TUN_FORWARD`**): all CONNECT-IP streams share one host TUN, and packets read from TUN are routed back to streams by destination IP mapping learned from inbound source IPs. This reduces per-session interface churn.
+
 ## Preconditions
 
 - Linux host, masque-server run with access to **`/dev/net/tun`** (typically **root** or **`CAP_NET_ADMIN`**).

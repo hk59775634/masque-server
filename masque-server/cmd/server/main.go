@@ -81,6 +81,7 @@ func main() {
 	connectIPTunName := strings.TrimSpace(os.Getenv("CONNECT_IP_TUN_NAME"))
 	connectIPTunLinkUp := isTruthyEnv("CONNECT_IP_TUN_LINK_UP") && connectIPTunForward
 	connectIPTunManagedNAT := isTruthyEnv("CONNECT_IP_TUN_MANAGED_NAT") && connectIPTunForward
+	connectIPTunShared := isTruthyEnv("CONNECT_IP_TUN_SHARED") && connectIPTunForward
 	connectIPTunEgressIF := strings.TrimSpace(os.Getenv("CONNECT_IP_TUN_EGRESS_IFACE"))
 	connectIPTunAddrCIDR := strings.TrimSpace(os.Getenv("CONNECT_IP_TUN_ADDR_CIDR"))
 	capParams := capabilities.Params{
@@ -95,6 +96,7 @@ func main() {
 		ConnectIPTunKernelForward:    connectIPTunForward,
 		ConnectIPTunLinkUp:           connectIPTunLinkUp,
 		ConnectIPTunManagedNAT:       connectIPTunManagedNAT,
+		ConnectIPTunShared:           connectIPTunShared,
 	}
 
 	router := chi.NewRouter()
@@ -266,6 +268,7 @@ func main() {
 				ConnectIPICMPRelayReplies:          metrics.connectIPICMPRelayReplies,
 				ConnectIPICMPRelayErrors:           metrics.connectIPICMPRelayErrors,
 				ConnectIPTunForward:                connectIPTunForward,
+				ConnectIPTunShared:                 connectIPTunShared,
 				ConnectIPTunName:                   connectIPTunName,
 				ConnectIPTunBridgeActive:           metrics.connectIPTunBridgeActive,
 				ConnectIPTunOpenEchoFallbacks:      metrics.connectIPTunOpenEchoFallbacks,
@@ -302,6 +305,9 @@ func main() {
 			}
 			if connectIPTunManagedNAT {
 				log.Printf("CONNECT_IP_TUN_MANAGED_NAT: will apply ip_forward/iptables for each session TUN (egress=%q, tun_addr=%q)", connectIPTunEgressIF, connectIPTunAddrCIDR)
+			}
+			if connectIPTunShared {
+				log.Printf("CONNECT_IP_TUN_SHARED: all CONNECT-IP streams share one host TUN; return packets are demuxed by destination IP")
 			}
 			if err := http3stub.Listen(cfg); err != nil {
 				log.Printf("QUIC HTTP/3 stub: %v", err)

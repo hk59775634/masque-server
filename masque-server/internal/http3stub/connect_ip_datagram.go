@@ -162,6 +162,10 @@ func runConnectIPTunDatagramLoop(ctx context.Context, str *http3.Stream, cfg Lis
 // Optional ConnectIPTunForward (Linux): bridges allowed IP payloads to a per-session TUN instead of echoing.
 func runConnectIPDatagramEchoLoop(ctx context.Context, str *http3.Stream, cfg ListenConfig, acl map[string]any) {
 	if cfg.ConnectIPTunForward {
+		if cfg.ConnectIPTunShared {
+			runConnectIPSharedTunSessionLoop(ctx, str, cfg, acl)
+			return
+		}
 		tun, tunName, cleanup, err := openConnectIPTunForward(cfg.ConnectIPTunName)
 		if err == nil {
 			defer cleanup()
@@ -190,6 +194,10 @@ func runConnectIPDatagramEchoLoop(ctx context.Context, str *http3.Stream, cfg Li
 	}
 
 fallbackEcho:
+	runConnectIPDatagramEchoOnlyLoop(ctx, str, cfg, acl)
+}
+
+func runConnectIPDatagramEchoOnlyLoop(ctx context.Context, str *http3.Stream, cfg ListenConfig, acl map[string]any) {
 	for {
 		data, err := str.ReceiveDatagram(ctx)
 		if err != nil {
