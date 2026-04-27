@@ -165,9 +165,16 @@ func runConnectIPDatagramEchoLoop(ctx context.Context, str *http3.Stream, cfg Li
 		tun, tunName, cleanup, err := openConnectIPTunForward(cfg.ConnectIPTunName)
 		if err == nil {
 			defer cleanup()
+			if cfg.ConnectIPTunBridgeActive != nil {
+				cfg.ConnectIPTunBridgeActive.Inc()
+				defer cfg.ConnectIPTunBridgeActive.Dec()
+			}
 			log.Printf("connect-ip: tun forward if=%s (per-session)", tunName)
 			runConnectIPTunDatagramLoop(ctx, str, cfg, acl, tun, tunName)
 			return
+		}
+		if cfg.ConnectIPTunOpenEchoFallbacks != nil {
+			cfg.ConnectIPTunOpenEchoFallbacks.Inc()
 		}
 		log.Printf("connect-ip: tun forward unavailable: %v; echo mode", err)
 	}

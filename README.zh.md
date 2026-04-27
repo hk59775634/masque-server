@@ -60,6 +60,7 @@ go run ./cmd/server
 - `masque_connect_ip_datagrams_dropped_total`、`masque_connect_ip_datagram_acl_denied_total`
 - `masque_connect_ip_datagram_unknown_context_total`
 - `masque_connect_ip_streams_active`
+- 启用 **`CONNECT_IP_TUN_FORWARD`**（Linux）时：`masque_connect_ip_tun_bridge_active`（gauge，当前处于 TUN 桥接的流数）、`masque_connect_ip_tun_open_echo_fallback_total`（TUN 打开失败回退 echo 的次数）；运维说明见 **`docs/runbooks/connect-ip-tun-forward-linux.md`**
 - 配置 `CONNECT_IP_ROUTE_ADV_CIDR` 时：`masque_connect_ip_route_push_total{result=sent|invalid_cidr|acl_denied|encode_error|write_error}`
 - 启用 UDP 中继时：`masque_connect_ip_udp_relay_replies_total`、`masque_connect_ip_udp_relay_errors_total{reason=...}`
 - 启用 ICMP 中继时：`masque_connect_ip_icmp_relay_replies_total`、`masque_connect_ip_icmp_relay_errors_total{reason=...}`

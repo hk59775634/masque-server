@@ -261,6 +261,8 @@ func main() {
 				ConnectIPICMPRelayErrors:        metrics.connectIPICMPRelayErrors,
 				ConnectIPTunForward:             connectIPTunForward,
 				ConnectIPTunName:                connectIPTunName,
+				ConnectIPTunBridgeActive:        metrics.connectIPTunBridgeActive,
+				ConnectIPTunOpenEchoFallbacks:   metrics.connectIPTunOpenEchoFallbacks,
 			}
 			if !skipConnectIPAuth {
 				cfg.Authorizer = cpClient
@@ -359,6 +361,8 @@ type serverMetrics struct {
 	connectIPUDPRelayErrors         *prometheus.CounterVec
 	connectIPICMPRelayReplies       prometheus.Counter
 	connectIPICMPRelayErrors        *prometheus.CounterVec
+	connectIPTunBridgeActive        prometheus.Gauge
+	connectIPTunOpenEchoFallbacks prometheus.Counter
 	healthChecksTotal               prometheus.Counter
 }
 
@@ -459,6 +463,14 @@ func newServerMetrics(registry *prometheus.Registry) *serverMetrics {
 			Name: "masque_connect_ip_icmp_relay_errors_total",
 			Help: "CONNECT-IP IPv4 ICMP Echo relay failures (CONNECT_IP_ICMP_RELAY).",
 		}, []string{"reason"}),
+		connectIPTunBridgeActive: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "masque_connect_ip_tun_bridge_active",
+			Help: "CONNECT-IP streams currently bridging datagrams to a host TUN (CONNECT_IP_TUN_FORWARD on Linux).",
+		}),
+		connectIPTunOpenEchoFallbacks: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "masque_connect_ip_tun_open_echo_fallback_total",
+			Help: "CONNECT_IP_TUN_FORWARD was enabled but opening the per-session TUN failed; stream used echo mode instead.",
+		}),
 		healthChecksTotal: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "masque_healthz_requests_total",
 			Help: "Total health endpoint hits.",
@@ -489,6 +501,8 @@ func newServerMetrics(registry *prometheus.Registry) *serverMetrics {
 		m.connectIPUDPRelayErrors,
 		m.connectIPICMPRelayReplies,
 		m.connectIPICMPRelayErrors,
+		m.connectIPTunBridgeActive,
+		m.connectIPTunOpenEchoFallbacks,
 		m.healthChecksTotal,
 	)
 

@@ -90,4 +90,10 @@ type ListenConfig struct {
 	ConnectIPTunForward bool
 	// ConnectIPTunName is passed to TUNSETIFF (may be empty for kernel-assigned name).
 	ConnectIPTunName string
+
+	// ConnectIPTunBridgeActive, if non-nil, gauge incremented while a CONNECT-IP stream runs the host TUN bridge loop.
+	ConnectIPTunBridgeActive prometheus.Gauge
+
+	// ConnectIPTunOpenEchoFallbacks, if non-nil, counts CONNECT_IP_TUN_FORWARD sessions where opening /dev/net/tun failed and the handler fell back to echo mode.
+	ConnectIPTunOpenEchoFallbacks prometheus.Counter
 }
