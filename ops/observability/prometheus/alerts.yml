@@ -1,3 +1,4 @@
+# runbook_url: GitHub browser links (afbuyers/masque-server); fork deployments may override via recording rules or sed.
 groups:
   - name: masque-server-alerts
     rules:
@@ -15,6 +16,7 @@ groups:
         annotations:
           summary: "MASQUE connect failure rate is high"
           description: "Connect failure rate has been above 5% for 5 minutes."
+          runbook_url: "https://github.com/afbuyers/masque-server/blob/main/docs/runbooks/m4-production-readiness-checklist.md"
 
       - alert: MasqueConnectLatencyP95High
         expr: |
@@ -29,6 +31,7 @@ groups:
         annotations:
           summary: "MASQUE connect latency p95 is high"
           description: "Connect latency p95 has been above 800ms for 5 minutes."
+          runbook_url: "https://github.com/afbuyers/masque-server/blob/main/docs/runbooks/m4-production-readiness-checklist.md"
 
       - alert: MasqueAuthorizeLatencyP95High
         expr: |
@@ -43,6 +46,7 @@ groups:
         annotations:
           summary: "MASQUE control-plane authorize latency p95 is high"
           description: "POST /api/v1/server/authorize RTT p95 has been above 500ms for 5 minutes (check control-plane load and network)."
+          runbook_url: "https://github.com/afbuyers/masque-server/blob/main/docs/runbooks/m4-production-readiness-checklist.md"
 
       - alert: MasqueConnectIPRoutePushACLDenied
         expr: |
@@ -54,6 +58,7 @@ groups:
         annotations:
           summary: "CONNECT-IP proactive route push denied by ACL"
           description: "CONNECT_IP_ROUTE_ADV_CIDR is set, but route pushes have been denied by device ACL for 10 minutes."
+          runbook_url: "https://github.com/afbuyers/masque-server/blob/main/README.zh.md"
 
       - alert: MasqueConnectIPRoutePushInvalidCIDR
         expr: |
@@ -65,6 +70,7 @@ groups:
         annotations:
           summary: "CONNECT-IP proactive route push CIDR is invalid"
           description: "CONNECT_IP_ROUTE_ADV_CIDR is malformed; proactive ROUTE_ADVERTISEMENT cannot be sent."
+          runbook_url: "https://github.com/afbuyers/masque-server/blob/main/README.zh.md"
 
       - alert: MasqueConnectIPTunOpenEchoFallback
         expr: |
@@ -75,4 +81,5 @@ groups:
           service: masque-server
         annotations:
           summary: "CONNECT-IP TUN forward enabled but host TUN open failed (echo fallback)"
-          description: "CONNECT_IP_TUN_FORWARD is on but per-session /dev/net/tun open keeps failing (check CAP_NET_ADMIN/root, device node, or CONNECT_IP_TUN_NAME). See docs/runbooks/connect-ip-tun-forward-linux.md."
+          description: "CONNECT_IP_TUN_FORWARD is on but per-session /dev/net/tun open keeps failing (check CAP_NET_ADMIN/root, device node, or CONNECT_IP_TUN_NAME)."
+          runbook_url: "https://github.com/afbuyers/masque-server/blob/main/docs/runbooks/connect-ip-tun-forward-linux.md"

@@ -45,7 +45,7 @@ This repository contains a closed-loop implementation and M2 upgrades:
    - `go mod tidy`
    - `go run ./cmd/client version` (optional; same `-ldflags -X main.version=...` pattern as server)
    - `go run ./cmd/client activate -control-plane http://127.0.0.1:8000 -fingerprint fp-demo-001 -code XXXX-YYYY` (optional `-verify`: control plane before activate; masque `/healthz` after — masque failure only warns, config still saved)
-   - `go run ./cmd/client doctor -h` (optional probes: control plane + masque `/healthz`, `-strict` requires masque URL)
+   - `go run ./cmd/client doctor -h` (optional probes: control plane + masque `/healthz`, `-strict` requires masque URL; when capabilities advertise **TUN** per session, `doctor` also **GET `/metrics`** and expects **CONNECT-IP TUN** metric names — see [README.zh.md](./README.zh.md) doctor section)
    - `go run ./cmd/client config show` (token redacted) or `config path` / `config export` / `config import -i file [-force] [-verify]`
    - `go run ./cmd/client status -live` (local summary + `GET /api/v1/devices/self`); `status -json` / `status -json -live` for machine-readable output
    - `sudo go run ./cmd/client connect` (optional `connect -check` to require control plane `GET /api/v1/devices/self` OK before masque)

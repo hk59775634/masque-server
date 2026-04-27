@@ -81,6 +81,8 @@ go run ./cmd/client doctor -connect-ip
 go run ./cmd/client doctor -connect-ip -connect-ip-udp 127.0.0.1:8444 -connect-ip-rfc9484-udp
 ```
 
+当 **`GET /v1/masque/capabilities`** 声明 **`tunnel.quic.connect_ip.http3_datagrams.tun_linux_per_session`**（即服务端开启 **`CONNECT_IP_TUN_FORWARD`**）时，`doctor` 会额外 **`GET /metrics`**，校验是否存在 **`masque_connect_ip_tun_bridge_active`** 与 **`masque_connect_ip_tun_open_echo_fallback_total`** 系列名；缺失则 **WARN**（常见于 masque 版本过旧或未暴露 `/metrics`）。
+
 ### connect-ip-tun（仅 Linux）
 
 建立 **CONNECT-IP**，创建 **TUN**，在 TUN 与 **RFC 9484 Context 0** 的 HTTP Datagram 之间转发 IP 帧。需要 **`/dev/net/tun`** 及对 **`ip link` / `ip addr`** 的权限（通常 root 或 **CAP_NET_ADMIN**）。

@@ -39,6 +39,6 @@ Grafana **`ops/observability/grafana/dashboards/masque-overview.json`** includes
 
 ## Alerts
 
-Prometheus rule **`MasqueConnectIPTunOpenEchoFallback`** (`ops/observability/prometheus/alerts.yml`): fires when the **fallback counter rate** is above zero for **10 minutes** — usually misconfiguration or missing privileges while **`CONNECT_IP_TUN_FORWARD`** is enabled.
+Prometheus rule **`MasqueConnectIPTunOpenEchoFallback`** (`ops/observability/prometheus/alerts.yml`): fires when the **fallback counter rate** is above zero for **10 minutes** — usually misconfiguration or missing privileges while **`CONNECT_IP_TUN_FORWARD`** is enabled. The rule sets annotation **`runbook_url`** to this document (GitHub `blob/main` URL in-repo; override in forks if needed). **Alertmanager** forwards annotations to receivers (see `ops/observability/alertmanager/alertmanager.yml` header comment).
 
-See also **`GET /v1/masque/capabilities`** (`quic.connect_ip.dev.tun_forward_env`) and [README.zh.md](../../README.zh.md) (CONNECT-IP metrics list).
+See also **`GET /v1/masque/capabilities`** (`quic.connect_ip.dev.tun_forward_env`) and [README.zh.md](../../README.zh.md) (CONNECT-IP metrics list). **Linux client:** `doctor` checks **`/metrics`** for TUN series when capabilities report **`tun_linux_per_session`**.

@@ -413,6 +413,7 @@ func cmdDoctor(args []string) {
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "usage: client doctor [-control-plane URL] [-masque-server URL] [-loki URL] [-tcp-probe IP:port] [-connect-ip] [-connect-ip-udp host:port] [-connect-ip-rfc9484-udp] [-strict]\n")
 		fmt.Fprintf(os.Stderr, "  Also probes GET /v1/masque/capabilities when masque URL is set (WARN if stub or unreachable).\n")
+		fmt.Fprintf(os.Stderr, "  When capabilities advertise tunnel.quic.connect_ip.http3_datagrams.tun_linux_per_session, GET /metrics and expect CONNECT-IP TUN metric names (WARN if missing).\n")
 		fs.PrintDefaults()
 	}
 	_ = fs.Parse(args)
@@ -533,15 +534,32 @@ func cmdDoctor(args []string) {
 						warn++
 					} else {
 						tunnel, _ := cap["tunnel"].(map[string]any)
-						ready, _ := tunnel["masque_ready"].(bool)
-						mode, _ := tunnel["mode"].(string)
-						if !ready {
-							printCheck("WARN", "masque_capabilities", fmt.Sprintf("GET %s -> 200; masque_ready=false mode=%q (data plane stub)", capURL, mode))
+						if tunnel == nil {
+							printCheck("WARN", "masque_capabilities", fmt.Sprintf("GET %s -> 200; missing tunnel object", capURL))
 							warn++
 						} else {
-							printCheck("OK", "masque_capabilities", fmt.Sprintf("GET %s -> 200; masque_ready=true", capURL))
+							ready, _ := tunnel["masque_ready"].(bool)
+							mode, _ := tunnel["mode"].(string)
+							if !ready {
+								printCheck("WARN", "masque_capabilities", fmt.Sprintf("GET %s -> 200; masque_ready=false mode=%q (data plane stub)", capURL, mode))
+								warn++
+							} else {
+								printCheck("OK", "masque_capabilities", fmt.Sprintf("GET %s -> 200; masque_ready=true", capURL))
+							}
 						}
 					}
+				}
+			}
+
+			if capErr == nil && capCode == http.StatusOK && capabilitiesTUNBridgeAdvertised(raw) {
+				mctx, mcancel := context.WithTimeout(ctx, 8*time.Second)
+				mOK, mDetail := doctorProbeMasqueCONNECTIPTUNMetrics(mctx, client, masqueURL)
+				mcancel()
+				if mOK {
+					printCheck("OK", "masque_metrics_connect_ip_tun", mDetail)
+				} else {
+					printCheck("WARN", "masque_metrics_connect_ip_tun", mDetail)
+					warn++
 				}
 			}
 
