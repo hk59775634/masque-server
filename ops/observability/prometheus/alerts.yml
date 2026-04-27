@@ -107,3 +107,15 @@ groups:
           summary: "CONNECT-IP managed NAT automation apply failed"
           description: "CONNECT_IP_TUN_MANAGED_NAT is enabled but ip_forward/iptables automation is failing (check CONNECT_IP_TUN_EGRESS_IFACE, iptables availability, and privileges)."
           runbook_url: "https://github.com/afbuyers/masque-server/blob/main/docs/runbooks/connect-ip-tun-forward-linux.md"
+
+      - alert: MasqueConnectIPTunSharedBindingConflictsHigh
+        expr: |
+          sum(rate(masque_connect_ip_tun_shared_binding_conflicts_total[5m])) > 0.1
+        for: 10m
+        labels:
+          severity: warning
+          service: masque-server
+        annotations:
+          summary: "CONNECT-IP shared TUN IP-binding conflicts are high"
+          description: "Shared TUN source-IP ownership is frequently changing across sessions; check overlapping client addressing and binding TTL."
+          runbook_url: "https://github.com/afbuyers/masque-server/blob/main/docs/runbooks/connect-ip-tun-forward-linux.md"

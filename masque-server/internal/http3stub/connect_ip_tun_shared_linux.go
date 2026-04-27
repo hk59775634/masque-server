@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/quic-go/quic-go/http3"
 )
@@ -24,7 +25,12 @@ type sharedTunManager struct {
 
 	mu          sync.RWMutex
 	sessions    map[string]*sharedTunSession
-	ipToSession map[string]string // client source IP -> session id
+	ipToSession map[string]sharedTunBinding // client source IP -> session id
+}
+
+type sharedTunBinding struct {
+	sessionID string
+	lastSeen  time.Time
 }
 
 var (
@@ -48,7 +54,7 @@ func getOrCreateSharedTunManager(cfg ListenConfig) (*sharedTunManager, error) {
 		ifName:      ifName,
 		cfg:         cfg,
 		sessions:    map[string]*sharedTunSession{},
-		ipToSession: map[string]string{},
+		ipToSession: map[string]sharedTunBinding{},
 	}
 	if !maybeBringUpConnectIPTun(ifName, cfg.ConnectIPTunLinkUp) && cfg.ConnectIPTunLinkUpFailures != nil {
 		cfg.ConnectIPTunLinkUpFailures.Inc()
@@ -58,6 +64,7 @@ func getOrCreateSharedTunManager(cfg ListenConfig) (*sharedTunManager, error) {
 		return nil, fmt.Errorf("managed NAT apply failed on shared TUN %s", ifName)
 	}
 	go mgr.readLoop()
+	go mgr.gcLoop()
 	sharedTun = mgr
 	log.Printf("connect-ip: shared TUN manager started if=%s", ifName)
 	return mgr, nil
@@ -81,7 +88,7 @@ func (m *sharedTunManager) readLoop() {
 		}
 		sessionID := ""
 		m.mu.RLock()
-		sessionID = m.ipToSession[dst.String()]
+		sessionID = m.ipToSession[dst.String()].sessionID
 		sess := m.sessions[sessionID]
 		m.mu.RUnlock()
 		if sess == nil {
@@ -112,7 +119,7 @@ func (m *sharedTunManager) registerSession(id string, send func([]byte) error) (
 		m.mu.Lock()
 		delete(m.sessions, id)
 		for ip, sid := range m.ipToSession {
-			if sid == id {
+			if sid.sessionID == id {
 				delete(m.ipToSession, ip)
 			}
 		}
@@ -125,8 +132,42 @@ func (m *sharedTunManager) bindClientIP(id, srcIP string) {
 		return
 	}
 	m.mu.Lock()
-	m.ipToSession[srcIP] = id
+	now := time.Now()
+	if old, ok := m.ipToSession[srcIP]; ok && old.sessionID != "" && old.sessionID != id {
+		if m.cfg.ConnectIPTunSharedBindingConflicts != nil {
+			m.cfg.ConnectIPTunSharedBindingConflicts.Inc()
+		}
+	}
+	m.ipToSession[srcIP] = sharedTunBinding{sessionID: id, lastSeen: now}
 	m.mu.Unlock()
+}
+
+func (m *sharedTunManager) bindingTTL() time.Duration {
+	if m.cfg.ConnectIPTunSharedBindingTTL > 0 {
+		return m.cfg.ConnectIPTunSharedBindingTTL
+	}
+	return 5 * time.Minute
+}
+
+func (m *sharedTunManager) gcLoop() {
+	ttl := m.bindingTTL()
+	tk := time.NewTicker(time.Minute)
+	defer tk.Stop()
+	for range tk.C {
+		cutoff := time.Now().Add(-ttl)
+		evicted := 0
+		m.mu.Lock()
+		for ip, b := range m.ipToSession {
+			if b.lastSeen.Before(cutoff) {
+				delete(m.ipToSession, ip)
+				evicted++
+			}
+		}
+		m.mu.Unlock()
+		if evicted > 0 && m.cfg.ConnectIPTunSharedBindingStaleEvictions != nil {
+			m.cfg.ConnectIPTunSharedBindingStaleEvictions.Add(float64(evicted))
+		}
+	}
 }
 
 func runConnectIPSharedTunSessionLoop(ctx context.Context, str *http3.Stream, cfg ListenConfig, acl map[string]any) {

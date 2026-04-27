@@ -2,6 +2,7 @@ package http3stub
 
 import (
 	"context"
+	"time"
 
 	"afbuyers/masque-server/internal/auth"
 	"afbuyers/masque-server/internal/capabilities"
@@ -116,4 +117,10 @@ type ListenConfig struct {
 	ConnectIPTunAddressCIDR string
 	// ConnectIPTunManagedNATApplyResults counts managed NAT apply outcomes (result=ok|error).
 	ConnectIPTunManagedNATApplyResults *prometheus.CounterVec
+	// ConnectIPTunSharedBindingConflicts counts source-IP ownership changes across sessions in shared TUN mode.
+	ConnectIPTunSharedBindingConflicts prometheus.Counter
+	// ConnectIPTunSharedBindingStaleEvictions counts stale source-IP bindings evicted by TTL in shared TUN mode.
+	ConnectIPTunSharedBindingStaleEvictions prometheus.Counter
+	// ConnectIPTunSharedBindingTTL controls stale binding eviction for shared TUN mode; when <=0, default is 5m.
+	ConnectIPTunSharedBindingTTL time.Duration
 }

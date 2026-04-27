@@ -60,7 +60,7 @@ go run ./cmd/server
 - `masque_connect_ip_datagrams_dropped_total`、`masque_connect_ip_datagram_acl_denied_total`
 - `masque_connect_ip_datagram_unknown_context_total`
 - `masque_connect_ip_streams_active`
-- 启用 **`CONNECT_IP_TUN_FORWARD`**（Linux）时：`masque_connect_ip_tun_bridge_active`（gauge，当前处于 TUN 桥接的流数）、`masque_connect_ip_tun_open_echo_fallback_total`（TUN 打开失败回退 echo 的次数）、`masque_connect_ip_tun_link_up_failures_total`（`CONNECT_IP_TUN_LINK_UP` 执行失败次数）、`masque_connect_ip_tun_managed_nat_apply_total{result}`（`CONNECT_IP_TUN_MANAGED_NAT` 应用结果）；Grafana 见 **`ops/observability/grafana/dashboards/masque-overview.json`** 面板；Prometheus 告警 **`MasqueConnectIPTunOpenEchoFallback`** / **`MasqueConnectIPTunLinkUpFailures`** / **`MasqueConnectIPTunManagedNATApplyErrors`**（`ops/observability/prometheus/alerts.yml`）；运维说明见 **`docs/runbooks/connect-ip-tun-forward-linux.md`**
+- 启用 **`CONNECT_IP_TUN_FORWARD`**（Linux）时：`masque_connect_ip_tun_bridge_active`（gauge，当前处于 TUN 桥接的流数）、`masque_connect_ip_tun_open_echo_fallback_total`（TUN 打开失败回退 echo 的次数）、`masque_connect_ip_tun_link_up_failures_total`（`CONNECT_IP_TUN_LINK_UP` 执行失败次数）、`masque_connect_ip_tun_managed_nat_apply_total{result}`（`CONNECT_IP_TUN_MANAGED_NAT` 应用结果）、`masque_connect_ip_tun_shared_binding_conflicts_total` / `masque_connect_ip_tun_shared_binding_stale_evictions_total`（共享 TUN 的映射冲突/过期回收）；Grafana 见 **`ops/observability/grafana/dashboards/masque-overview.json`** 面板；Prometheus 告警 **`MasqueConnectIPTunOpenEchoFallback`** / **`MasqueConnectIPTunLinkUpFailures`** / **`MasqueConnectIPTunManagedNATApplyErrors`** / **`MasqueConnectIPTunSharedBindingConflictsHigh`**（`ops/observability/prometheus/alerts.yml`）；运维说明见 **`docs/runbooks/connect-ip-tun-forward-linux.md`**
 - 配置 `CONNECT_IP_ROUTE_ADV_CIDR` 时：`masque_connect_ip_route_push_total{result=sent|invalid_cidr|acl_denied|encode_error|write_error}`
 - 启用 UDP 中继时：`masque_connect_ip_udp_relay_replies_total`、`masque_connect_ip_udp_relay_errors_total{reason=...}`
 - 启用 ICMP 中继时：`masque_connect_ip_icmp_relay_replies_total`、`masque_connect_ip_icmp_relay_errors_total{reason=...}`
@@ -122,7 +122,7 @@ sudo go run ./cmd/client connect-ip-tun [-masque-server URL] [-connect-ip-udp ho
 
 ## 安全提示
 
-- **`CONNECT_IP_SKIP_AUTH`**、**`CONNECT_IP_STUB_ECHO_CONTEXTS`**、**`CONNECT_IP_UDP_RELAY`**、**`CONNECT_IP_ICMP_RELAY`**、**`CONNECT_IP_TUN_FORWARD`**、**`CONNECT_IP_TUN_SHARED`**、**`CONNECT_IP_TUN_LINK_UP`**、**`CONNECT_IP_TUN_MANAGED_NAT`** 均可能扩大攻击面，仅应在受控环境使用。
+- **`CONNECT_IP_SKIP_AUTH`**、**`CONNECT_IP_STUB_ECHO_CONTEXTS`**、**`CONNECT_IP_UDP_RELAY`**、**`CONNECT_IP_ICMP_RELAY`**、**`CONNECT_IP_TUN_FORWARD`**、**`CONNECT_IP_TUN_SHARED`**、**`CONNECT_IP_TUN_SHARED_BINDING_TTL`**、**`CONNECT_IP_TUN_LINK_UP`**、**`CONNECT_IP_TUN_MANAGED_NAT`** 均可能扩大攻击面，仅应在受控环境使用。
 - 生产环境应使用正式 TLS、强制设备鉴权，并对中继与路由做独立安全评审。
 
 ## 告警 Mock 接收器提示配置

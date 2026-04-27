@@ -144,6 +144,7 @@ func Build(p Params) map[string]any {
 				"tun_link_up_env":     "CONNECT_IP_TUN_LINK_UP=1|true|yes|on (Linux, requires CONNECT_IP_TUN_FORWARD): after each successful TUN open, run ip link set dev <ifname> up (best-effort log on failure; needs ip(8) in PATH and CAP_NET_ADMIN).",
 				"tun_managed_nat_env": "CONNECT_IP_TUN_MANAGED_NAT=1|true|yes|on (Linux, requires CONNECT_IP_TUN_FORWARD): apply net.ipv4.ip_forward=1 and iptables FORWARD/MASQUERADE rules. Requires CONNECT_IP_TUN_EGRESS_IFACE; optional CONNECT_IP_TUN_ADDR_CIDR for ip addr replace.",
 				"tun_shared_env":      "CONNECT_IP_TUN_SHARED=1|true|yes|on (Linux, requires CONNECT_IP_TUN_FORWARD): share one host TUN across streams and demux by destination IP learned from inbound source IPs.",
+				"tun_shared_ttl_env":  "CONNECT_IP_TUN_SHARED_BINDING_TTL=<duration> (default 5m): stale source-IP binding eviction window in shared TUN mode.",
 			},
 		}
 		if p.ConnectIPRouteAdvertPushCIDR != "" {

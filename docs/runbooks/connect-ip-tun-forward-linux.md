@@ -13,6 +13,7 @@ Optional **`CONNECT_IP_TUN_MANAGED_NAT=1`** (with **`CONNECT_IP_TUN_FORWARD`**):
 This is a minimal bootstrap, not a full firewall policy manager. Existing host security controls remain your responsibility.
 
 Optional **`CONNECT_IP_TUN_SHARED=1`** (with **`CONNECT_IP_TUN_FORWARD`**): all CONNECT-IP streams share one host TUN, and packets read from TUN are routed back to streams by destination IP mapping learned from inbound source IPs. This reduces per-session interface churn.
+Optional **`CONNECT_IP_TUN_SHARED_BINDING_TTL`** (default `5m`) controls stale source-IP binding eviction in shared mode.
 
 ## Preconditions
 
@@ -46,6 +47,8 @@ sudo iptables -t nat -A POSTROUTING -o <wan> -j MASQUERADE
 - **`masque_connect_ip_tun_open_echo_fallback_total`**: counter — **`CONNECT_IP_TUN_FORWARD`** was on but **`openConnectIPTunForward`** failed (permission, missing `/dev/net/tun`, etc.); the stream used **echo** instead.
 - **`masque_connect_ip_tun_link_up_failures_total`**: counter — **`CONNECT_IP_TUN_LINK_UP`** attempted `ip link set up` but failed (`ip` missing in `PATH`, insufficient capabilities, invalid interface state/name, etc.).
 - **`masque_connect_ip_tun_managed_nat_apply_total{result}`**: countervec — managed NAT apply outcomes (`ok` or `error`).
+- **`masque_connect_ip_tun_shared_binding_conflicts_total`**: counter — shared-mode source-IP ownership changes across sessions.
+- **`masque_connect_ip_tun_shared_binding_stale_evictions_total`**: counter — stale source-IP bindings evicted by TTL GC.
 
 Grafana **`ops/observability/grafana/dashboards/masque-overview.json`** includes panels for both series.
 
@@ -55,6 +58,7 @@ Prometheus rules in `ops/observability/prometheus/alerts.yml`:
 - **`MasqueConnectIPTunOpenEchoFallback`**: fallback counter rate above zero for 10 minutes.
 - **`MasqueConnectIPTunLinkUpFailures`**: link-up failure counter rate above zero for 10 minutes.
 - **`MasqueConnectIPTunManagedNATApplyErrors`**: managed NAT apply error rate above zero for 10 minutes.
+- **`MasqueConnectIPTunSharedBindingConflictsHigh`**: shared-mode binding conflict rate above `0.1/s` for 10 minutes.
 
 Both set annotation **`runbook_url`** to this document (GitHub `blob/main` URL in-repo; override in forks if needed). **Alertmanager** forwards annotations to receivers (see `ops/observability/alertmanager/alertmanager.yml` header comment).
 

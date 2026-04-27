@@ -171,6 +171,38 @@
       ],
       "title": "CONNECT-IP managed NAT apply outcomes",
       "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" } }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 48 },
+      "id": 12,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "single" } },
+      "targets": [
+        {
+          "expr": "sum(rate(masque_connect_ip_tun_shared_binding_conflicts_total[5m]))",
+          "legendFormat": "conflicts/s",
+          "refId": "A"
+        }
+      ],
+      "title": "CONNECT-IP shared TUN binding conflicts",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" } }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 48 },
+      "id": 13,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "single" } },
+      "targets": [
+        {
+          "expr": "sum(rate(masque_connect_ip_tun_shared_binding_stale_evictions_total[5m]))",
+          "legendFormat": "stale-evictions/s",
+          "refId": "A"
+        }
+      ],
+      "title": "CONNECT-IP shared TUN stale evictions",
+      "type": "timeseries"
     }
   ],
   "refresh": "10s",
@@ -182,6 +214,6 @@
   "timepicker": {},
   "timezone": "",
   "title": "MASQUE Server Overview",
-  "version": 6,
+  "version": 7,
   "weekStart": ""
 }

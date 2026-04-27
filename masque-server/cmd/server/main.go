@@ -82,6 +82,14 @@ func main() {
 	connectIPTunLinkUp := isTruthyEnv("CONNECT_IP_TUN_LINK_UP") && connectIPTunForward
 	connectIPTunManagedNAT := isTruthyEnv("CONNECT_IP_TUN_MANAGED_NAT") && connectIPTunForward
 	connectIPTunShared := isTruthyEnv("CONNECT_IP_TUN_SHARED") && connectIPTunForward
+	connectIPTunSharedBindingTTL := 5 * time.Minute
+	if raw := strings.TrimSpace(os.Getenv("CONNECT_IP_TUN_SHARED_BINDING_TTL")); raw != "" {
+		if d, err := time.ParseDuration(raw); err == nil {
+			connectIPTunSharedBindingTTL = d
+		} else {
+			log.Printf("CONNECT_IP_TUN_SHARED_BINDING_TTL parse failed (%q): %v; using %s", raw, err, connectIPTunSharedBindingTTL)
+		}
+	}
 	connectIPTunEgressIF := strings.TrimSpace(os.Getenv("CONNECT_IP_TUN_EGRESS_IFACE"))
 	connectIPTunAddrCIDR := strings.TrimSpace(os.Getenv("CONNECT_IP_TUN_ADDR_CIDR"))
 	capParams := capabilities.Params{
@@ -247,37 +255,40 @@ func main() {
 		go func() {
 			skipConnectIPAuth := isTruthyEnv("CONNECT_IP_SKIP_AUTH") || isTruthyEnv("MASQUE_CONNECT_IP_SKIP_AUTH")
 			cfg := http3stub.ListenConfig{
-				Params:                             capParams,
-				ConnectIPResults:                   metrics.connectIPTotal,
-				AuthorizeLatencyObserve:            metrics.authorizeLatency,
-				ConnectIPCapsulesParsed:            metrics.connectIPCapsulesParsed,
-				ConnectIPCapsuleParseErrors:        metrics.connectIPCapsuleParseErrors,
-				RFC9484Capsules:                    metrics.connectIPRFC9484Capsules,
-				ConnectIPAddressAssignWrites:       metrics.connectIPAddressAssignWrites,
-				ConnectIPDatagramsReceived:         metrics.connectIPDatagramsReceived,
-				ConnectIPDatagramsSent:             metrics.connectIPDatagramsSent,
-				ConnectIPDatagramDrops:             metrics.connectIPDatagramDrops,
-				ConnectIPDatagramACLDenied:         metrics.connectIPDatagramACLDenied,
-				ConnectIPDatagramUnknownContext:    metrics.connectIPDatagramUnknownContext,
-				ConnectIPStreamsActive:             metrics.connectIPStreamsActive,
-				ConnectIPRoutePushResults:          metrics.connectIPRoutePushResults,
-				ConnectIPUDPRelay:                  connectIPUDPRelay,
-				ConnectIPUDPRelayReplies:           metrics.connectIPUDPRelayReplies,
-				ConnectIPUDPRelayErrors:            metrics.connectIPUDPRelayErrors,
-				ConnectIPICMPRelay:                 connectIPICMPRelay,
-				ConnectIPICMPRelayReplies:          metrics.connectIPICMPRelayReplies,
-				ConnectIPICMPRelayErrors:           metrics.connectIPICMPRelayErrors,
-				ConnectIPTunForward:                connectIPTunForward,
-				ConnectIPTunShared:                 connectIPTunShared,
-				ConnectIPTunName:                   connectIPTunName,
-				ConnectIPTunBridgeActive:           metrics.connectIPTunBridgeActive,
-				ConnectIPTunOpenEchoFallbacks:      metrics.connectIPTunOpenEchoFallbacks,
-				ConnectIPTunLinkUp:                 connectIPTunLinkUp,
-				ConnectIPTunLinkUpFailures:         metrics.connectIPTunLinkUpFailures,
-				ConnectIPTunManagedNAT:             connectIPTunManagedNAT,
-				ConnectIPTunEgressInterface:        connectIPTunEgressIF,
-				ConnectIPTunAddressCIDR:            connectIPTunAddrCIDR,
-				ConnectIPTunManagedNATApplyResults: metrics.connectIPTunManagedNATApply,
+				Params:                                  capParams,
+				ConnectIPResults:                        metrics.connectIPTotal,
+				AuthorizeLatencyObserve:                 metrics.authorizeLatency,
+				ConnectIPCapsulesParsed:                 metrics.connectIPCapsulesParsed,
+				ConnectIPCapsuleParseErrors:             metrics.connectIPCapsuleParseErrors,
+				RFC9484Capsules:                         metrics.connectIPRFC9484Capsules,
+				ConnectIPAddressAssignWrites:            metrics.connectIPAddressAssignWrites,
+				ConnectIPDatagramsReceived:              metrics.connectIPDatagramsReceived,
+				ConnectIPDatagramsSent:                  metrics.connectIPDatagramsSent,
+				ConnectIPDatagramDrops:                  metrics.connectIPDatagramDrops,
+				ConnectIPDatagramACLDenied:              metrics.connectIPDatagramACLDenied,
+				ConnectIPDatagramUnknownContext:         metrics.connectIPDatagramUnknownContext,
+				ConnectIPStreamsActive:                  metrics.connectIPStreamsActive,
+				ConnectIPRoutePushResults:               metrics.connectIPRoutePushResults,
+				ConnectIPUDPRelay:                       connectIPUDPRelay,
+				ConnectIPUDPRelayReplies:                metrics.connectIPUDPRelayReplies,
+				ConnectIPUDPRelayErrors:                 metrics.connectIPUDPRelayErrors,
+				ConnectIPICMPRelay:                      connectIPICMPRelay,
+				ConnectIPICMPRelayReplies:               metrics.connectIPICMPRelayReplies,
+				ConnectIPICMPRelayErrors:                metrics.connectIPICMPRelayErrors,
+				ConnectIPTunForward:                     connectIPTunForward,
+				ConnectIPTunShared:                      connectIPTunShared,
+				ConnectIPTunName:                        connectIPTunName,
+				ConnectIPTunBridgeActive:                metrics.connectIPTunBridgeActive,
+				ConnectIPTunOpenEchoFallbacks:           metrics.connectIPTunOpenEchoFallbacks,
+				ConnectIPTunLinkUp:                      connectIPTunLinkUp,
+				ConnectIPTunLinkUpFailures:              metrics.connectIPTunLinkUpFailures,
+				ConnectIPTunManagedNAT:                  connectIPTunManagedNAT,
+				ConnectIPTunEgressInterface:             connectIPTunEgressIF,
+				ConnectIPTunAddressCIDR:                 connectIPTunAddrCIDR,
+				ConnectIPTunManagedNATApplyResults:      metrics.connectIPTunManagedNATApply,
+				ConnectIPTunSharedBindingConflicts:      metrics.connectIPTunSharedConflicts,
+				ConnectIPTunSharedBindingStaleEvictions: metrics.connectIPTunSharedStaleEvictions,
+				ConnectIPTunSharedBindingTTL:            connectIPTunSharedBindingTTL,
 			}
 			if !skipConnectIPAuth {
 				cfg.Authorizer = cpClient
@@ -307,7 +318,7 @@ func main() {
 				log.Printf("CONNECT_IP_TUN_MANAGED_NAT: will apply ip_forward/iptables for each session TUN (egress=%q, tun_addr=%q)", connectIPTunEgressIF, connectIPTunAddrCIDR)
 			}
 			if connectIPTunShared {
-				log.Printf("CONNECT_IP_TUN_SHARED: all CONNECT-IP streams share one host TUN; return packets are demuxed by destination IP")
+				log.Printf("CONNECT_IP_TUN_SHARED: all CONNECT-IP streams share one host TUN; return packets are demuxed by destination IP (binding_ttl=%s)", connectIPTunSharedBindingTTL)
 			}
 			if err := http3stub.Listen(cfg); err != nil {
 				log.Printf("QUIC HTTP/3 stub: %v", err)
@@ -362,34 +373,36 @@ func randomSessionID() (string, error) {
 }
 
 type serverMetrics struct {
-	connectRequestsTotal            prometheus.Counter
-	connectSuccessTotal             prometheus.Counter
-	connectFailuresTotal            *prometheus.CounterVec
-	connectLatency                  prometheus.Histogram
-	authorizeLatency                prometheus.Histogram
-	tcpProbeTotal                   *prometheus.CounterVec
-	tcpProbeDialLatency             prometheus.Histogram
-	connectIPTotal                  *prometheus.CounterVec
-	connectIPCapsulesParsed         prometheus.Counter
-	connectIPCapsuleParseErrors     *prometheus.CounterVec
-	connectIPRFC9484Capsules        *prometheus.CounterVec
-	connectIPAddressAssignWrites    prometheus.Counter
-	connectIPDatagramsReceived      prometheus.Counter
-	connectIPDatagramsSent          prometheus.Counter
-	connectIPDatagramDrops          prometheus.Counter
-	connectIPDatagramACLDenied      prometheus.Counter
-	connectIPDatagramUnknownContext prometheus.Counter
-	connectIPStreamsActive          prometheus.Gauge
-	connectIPRoutePushResults       *prometheus.CounterVec
-	connectIPUDPRelayReplies        prometheus.Counter
-	connectIPUDPRelayErrors         *prometheus.CounterVec
-	connectIPICMPRelayReplies       prometheus.Counter
-	connectIPICMPRelayErrors        *prometheus.CounterVec
-	connectIPTunBridgeActive        prometheus.Gauge
-	connectIPTunOpenEchoFallbacks   prometheus.Counter
-	connectIPTunLinkUpFailures      prometheus.Counter
-	connectIPTunManagedNATApply     *prometheus.CounterVec
-	healthChecksTotal               prometheus.Counter
+	connectRequestsTotal             prometheus.Counter
+	connectSuccessTotal              prometheus.Counter
+	connectFailuresTotal             *prometheus.CounterVec
+	connectLatency                   prometheus.Histogram
+	authorizeLatency                 prometheus.Histogram
+	tcpProbeTotal                    *prometheus.CounterVec
+	tcpProbeDialLatency              prometheus.Histogram
+	connectIPTotal                   *prometheus.CounterVec
+	connectIPCapsulesParsed          prometheus.Counter
+	connectIPCapsuleParseErrors      *prometheus.CounterVec
+	connectIPRFC9484Capsules         *prometheus.CounterVec
+	connectIPAddressAssignWrites     prometheus.Counter
+	connectIPDatagramsReceived       prometheus.Counter
+	connectIPDatagramsSent           prometheus.Counter
+	connectIPDatagramDrops           prometheus.Counter
+	connectIPDatagramACLDenied       prometheus.Counter
+	connectIPDatagramUnknownContext  prometheus.Counter
+	connectIPStreamsActive           prometheus.Gauge
+	connectIPRoutePushResults        *prometheus.CounterVec
+	connectIPUDPRelayReplies         prometheus.Counter
+	connectIPUDPRelayErrors          *prometheus.CounterVec
+	connectIPICMPRelayReplies        prometheus.Counter
+	connectIPICMPRelayErrors         *prometheus.CounterVec
+	connectIPTunBridgeActive         prometheus.Gauge
+	connectIPTunOpenEchoFallbacks    prometheus.Counter
+	connectIPTunLinkUpFailures       prometheus.Counter
+	connectIPTunManagedNATApply      *prometheus.CounterVec
+	connectIPTunSharedConflicts      prometheus.Counter
+	connectIPTunSharedStaleEvictions prometheus.Counter
+	healthChecksTotal                prometheus.Counter
 }
 
 func newServerMetrics(registry *prometheus.Registry) *serverMetrics {
@@ -505,6 +518,14 @@ func newServerMetrics(registry *prometheus.Registry) *serverMetrics {
 			Name: "masque_connect_ip_tun_managed_nat_apply_total",
 			Help: "CONNECT_IP_TUN_MANAGED_NAT apply outcomes (result label).",
 		}, []string{"result"}),
+		connectIPTunSharedConflicts: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "masque_connect_ip_tun_shared_binding_conflicts_total",
+			Help: "Shared TUN source-IP binding ownership changes across sessions.",
+		}),
+		connectIPTunSharedStaleEvictions: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "masque_connect_ip_tun_shared_binding_stale_evictions_total",
+			Help: "Shared TUN source-IP bindings evicted by TTL.",
+		}),
 		healthChecksTotal: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "masque_healthz_requests_total",
 			Help: "Total health endpoint hits.",
@@ -539,6 +560,8 @@ func newServerMetrics(registry *prometheus.Registry) *serverMetrics {
 		m.connectIPTunOpenEchoFallbacks,
 		m.connectIPTunLinkUpFailures,
 		m.connectIPTunManagedNATApply,
+		m.connectIPTunSharedConflicts,
+		m.connectIPTunSharedStaleEvictions,
 		m.healthChecksTotal,
 	)
 
