@@ -1,23 +1,42 @@
 #!/usr/bin/env bash
-# One-shot: email + password → fetch activation code → masque-client activate → connect.
-# Requires: curl, python3, masque-client (PATH or MASQUE_CLIENT).
+# Default flow (Linux): prompt control-plane URL + account → activate → sudo connect-ip-tun
+# (creates tun0 by default, split IPv4 default routes, capsule routes, DNS from config or 1.1.1.1,8.8.8.8).
+#
+# Requires: curl, python3, masque-client (Linux build with connect-ip-tun), sudo, /dev/net/tun.
 #
 # Env (optional):
-#   CONTROL_PLANE_URL   default https://www.afbuyers.com
-#   MASQUE_CLIENT       path to masque-client binary (default: masque-client from PATH)
-#   CONNECT_MODE        dry-run | real  (default: dry-run; real uses sudo for routes/DNS)
-#   MASQUE_SERVER_URL   if ~/.masque-client.json still has http://127.0.0.1:8443 (old activate),
-#                       set this to your public masque, e.g. http://www.afbuyers.com:8443
-#   DEFAULT_PUBLIC_MASQUE  when MASQUE_SERVER_URL unset and control plane is not localhost,
-#                       loopback masque in config is rewritten to this (default http://www.afbuyers.com:8443)
-#   SKIP_MASQUE_CONFIG_FIX  set to 1 to never rewrite masque_server_url in the JSON config
+#   CONTROL_PLANE_URL     skip URL prompt when preset
+#   MASQUE_EMAIL / MASQUE_PASSWORD   non-interactive activate (with need for config missing)
+#   MASQUE_CLIENT         path to masque-client (default: masque-client in PATH)
+#   TUN_NAME              default tun0
+#   MASQUE_TUN_DNS        comma DNS e.g. 1.1.1.1,8.8.8.8 (else from ~/.masque-client.json dns[], else 1.1.1.1,8.8.8.8)
+#   CONNECT_IP_UDP        e.g. www.afbuyers.com:8444 when masque QUIC is not on HTTPS host:443
+#   MASQUE_SERVER_URL / DEFAULT_PUBLIC_MASQUE / SKIP_MASQUE_CONFIG_FIX   (fix loopback masque in saved JSON)
+#   LEGACY_CONNECT=1      use old HTTP connect only (CONNECT_MODE=dry-run|real), no TUN
 set -euo pipefail
 
-CONTROL_PLANE_URL="${CONTROL_PLANE_URL:-https://www.afbuyers.com}"
+die() { echo "error: $*" >&2; exit 1; }
+
+if [[ "$(uname -s)" != "Linux" ]]; then
+	die "this script targets Linux (connect-ip-tun)"
+fi
+
+DEFAULT_CP="${DEFAULT_CP:-https://www.afbuyers.com}"
+if [[ -z "${CONTROL_PLANE_URL:-}" ]]; then
+	if [[ -t 0 ]]; then
+		read -r -p "Control plane URL [${DEFAULT_CP}]: " _cp_in || true
+		CONTROL_PLANE_URL="${_cp_in:-$DEFAULT_CP}"
+	else
+		CONTROL_PLANE_URL="${DEFAULT_CP}"
+	fi
+fi
 CP="${CONTROL_PLANE_URL%/}"
+
 MASQUE_CLIENT="${MASQUE_CLIENT:-masque-client}"
-CONNECT_MODE="${CONNECT_MODE:-dry-run}"
+TUN_NAME="${TUN_NAME:-tun0}"
 DEFAULT_PUBLIC_MASQUE="${DEFAULT_PUBLIC_MASQUE:-http://www.afbuyers.com:8443}"
+LEGACY_CONNECT="${LEGACY_CONNECT:-0}"
+CONNECT_MODE="${CONNECT_MODE:-dry-run}"
 
 CONFIG_DEFAULT="${HOME}/.masque-client.json"
 if [[ -n "${MASQUE_CLIENT_CONFIG:-}" ]]; then
@@ -28,8 +47,6 @@ fi
 
 FP_DIR="${XDG_CONFIG_HOME:-${HOME}/.config}/masque-linux-client"
 FP_FILE="${FP_DIR}/device-fingerprint"
-
-die() { echo "error: $*" >&2; exit 1; }
 
 command -v curl >/dev/null 2>&1 || die "curl not found"
 command -v python3 >/dev/null 2>&1 || die "python3 not found"
@@ -53,15 +70,21 @@ DEVICE_NAME="${DEVICE_NAME:-$(hostname)-quick}"
 need_activate=1
 if [[ -f "${CONFIG_FILE}" ]] && python3 -c "import json,sys; c=json.load(open(sys.argv[1])); sys.exit(0 if c.get('device_token') else 1)" "${CONFIG_FILE}" 2>/dev/null; then
 	need_activate=0
-	echo "[quick] using saved device config at ${CONFIG_FILE} (remove file to log in again with email/password)"
+	echo "[quick] using saved device config at ${CONFIG_FILE} (rm that file to log in again)"
 fi
 
 if [[ "${need_activate}" == "1" ]]; then
-	read -r -p "Control-plane email: " EMAIL
-	[[ -n "${EMAIL// }" ]] || die "email required"
-	read -r -s -p "Password: " PASSWORD
-	echo
-	[[ -n "${PASSWORD}" ]] || die "password required"
+	EMAIL="${MASQUE_EMAIL:-}"
+	PASSWORD="${MASQUE_PASSWORD:-}"
+	if [[ -z "${EMAIL}" ]] && [[ -t 0 ]]; then
+		read -r -p "Control-plane email: " EMAIL
+	fi
+	[[ -n "${EMAIL// }" ]] || die "email required (or set MASQUE_EMAIL)"
+	if [[ -z "${PASSWORD}" ]] && [[ -t 0 ]]; then
+		read -r -s -p "Password: " PASSWORD
+		echo
+	fi
+	[[ -n "${PASSWORD}" ]] || die "password required (or set MASQUE_PASSWORD)"
 
 	TMP_BODY="$(mktemp)"
 	cleanup() { rm -f "${TMP_BODY}" /tmp/masque-quick-code.json 2>/dev/null || true; }
@@ -94,7 +117,6 @@ print(json.dumps({"email": email, "password": password, "fingerprint": fp, "devi
 		-verify
 fi
 
-# Saved config from an old server .env often has masque on 127.0.0.1 — unusable off-host.
 fix_loopback_masque_in_client_config() {
 	if [[ "${SKIP_MASQUE_CONFIG_FIX:-0}" == "1" ]]; then
 		return
@@ -124,18 +146,36 @@ if "127.0.0.1" in u or "localhost" in u or u.startswith("http://0.0.0.0"):
 
 fix_loopback_masque_in_client_config
 
-case "${CONNECT_MODE}" in
-	dry-run)
-		echo "[quick] connect (dry-run, no root)..."
-		"${MASQUE_CLIENT}" connect -dry-run
-		echo "[quick] done. For real VPN routes/DNS: CONNECT_MODE=real $0"
-		;;
-	real)
-		echo "[quick] connect (real; requires sudo)..."
-		sudo -E env "PATH=${PATH}" "${MASQUE_CLIENT}" connect -check
-		echo "[quick] done."
-		;;
-	*)
-		die "CONNECT_MODE must be dry-run or real (got ${CONNECT_MODE})"
-		;;
-esac
+if [[ "${LEGACY_CONNECT}" == "1" ]]; then
+	case "${CONNECT_MODE}" in
+		dry-run)
+			echo "[quick] LEGACY_CONNECT=1: HTTP connect dry-run..."
+			"${MASQUE_CLIENT}" connect -dry-run
+			;;
+		real)
+			echo "[quick] LEGACY_CONNECT=1: HTTP connect (no TUN)..."
+			sudo -E env "PATH=${PATH}" "${MASQUE_CLIENT}" connect -check
+			;;
+		*)
+			die "CONNECT_MODE must be dry-run or real (got ${CONNECT_MODE})"
+			;;
+	esac
+	echo "[quick] done."
+	exit 0
+fi
+
+DNS_CSV="${MASQUE_TUN_DNS:-}"
+if [[ -z "${DNS_CSV// }" ]] && [[ -f "${CONFIG_FILE}" ]]; then
+	DNS_CSV="$(python3 -c 'import json,sys; c=json.load(open(sys.argv[1])); d=c.get("dns") or []; print(",".join(str(x) for x in d))' "${CONFIG_FILE}" 2>/dev/null || true)"
+fi
+[[ -n "${DNS_CSV// }" ]] || DNS_CSV="1.1.1.1,8.8.8.8"
+
+TUN_ARGS=( -tun-name "${TUN_NAME}" -route split -apply-routes-from-capsule -dns "${DNS_CSV}" )
+if [[ -n "${CONNECT_IP_UDP:-}" ]]; then
+	TUN_ARGS+=( -connect-ip-udp "${CONNECT_IP_UDP}" )
+fi
+
+echo "[quick] VPN: interface=${TUN_NAME} dns=${DNS_CSV}"
+echo "[quick] masque UDP/capabilities: set CONNECT_IP_UDP=host:port if QUIC is not on the HTTPS hostname (see masque QUIC_LISTEN_ADDR)."
+echo "[quick] starting connect-ip-tun (sudo; Ctrl+C to exit and restore DNS/routes)..."
+exec sudo -E env "PATH=${PATH}" "${MASQUE_CLIENT}" connect-ip-tun "${TUN_ARGS[@]}"

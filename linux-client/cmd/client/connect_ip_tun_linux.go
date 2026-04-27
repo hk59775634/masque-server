@@ -30,7 +30,7 @@ func cmdConnectIPTun(args []string) {
 	applyRoutesFromCapsule := fs.Bool("apply-routes-from-capsule", false, "apply RFC 9484 ROUTE_ADVERTISEMENT to system routes (IPv4 single-CIDR ranges only; uses ip route replace)")
 	fs.StringVar(&masqueURL, "masque-server", "", "MASQUE server base URL (default: from config)")
 	fs.StringVar(&connectIPUDP, "connect-ip-udp", "", "override UDP host:port (default: from GET /v1/masque/capabilities listen_udp)")
-	fs.StringVar(&tunName, "tun-name", "", "requested TUN interface name (empty = kernel assigns, e.g. tun0)")
+	fs.StringVar(&tunName, "tun-name", "tun0", "requested TUN interface name (pass -tun-name= for kernel-assigned name)")
 	fs.StringVar(&addrCIDR, "addr", "", "optional: run \"ip addr add <cidr> dev <if>\" after bring-up (requires CAP_NET_ADMIN / root); when unset, sends ADDRESS_REQUEST and applies server ADDRESS_ASSIGN (stub e.g. 192.0.2.1/32)")
 	mtu := fs.Int("mtu", 1280, "set interface MTU via ip-link (0 = skip)")
 	linkUp := fs.Bool("up", true, "run \"ip link set dev <if> up\"")

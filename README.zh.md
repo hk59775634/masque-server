@@ -69,15 +69,17 @@ go run ./cmd/server
 
 ## Linux 客户端（linux-client）
 
-### 一键脚本（邮箱 + 密码）
+### 一键脚本（URL + 邮箱 + 密码 → tun0 + IP/路由/DNS）
 
-仓库根目录 **`scripts/masque-quick-connect.sh`**：交互输入 **控制面账号邮箱与密码**，自动调用 **`POST /api/v1/devices/activation-code-with-credentials`**（携带本地持久化的 **`~/.config/masque-linux-client/device-fingerprint`**），再执行 **`masque-client activate -verify`** 与 **`connect`**。
+仓库 **`scripts/masque-quick-connect.sh`**（发布包内多为 **`start.sh`**）：
 
-- 默认 **`CONTROL_PLANE_URL=https://www.afbuyers.com`**，默认 **`CONNECT_MODE=dry-run`**（不改路由；真连接：`CONNECT_MODE=real ./scripts/masque-quick-connect.sh`，会 **`sudo`**）。
-- 若曾用错误的 **`MASQUE_SERVER_URL`** 激活，本地 **`~/.masque-client.json`** 里可能是 **`http://127.0.0.1:8443`**：脚本在控制面非 localhost 时会自动改写成 **`DEFAULT_PUBLIC_MASQUE`**（默认 `http://www.afbuyers.com:8443`），也可设置 **`MASQUE_SERVER_URL`**；或手动：`masque-client connect -masque-server http://www.afbuyers.com:8443 ...`。
-- **`connect` 与路由**：`POST /connect` 返回的 **`0.0.0.0/1`、`128.0.0.0/1`** 等策略路由**不能**装到 **`lo`**（旧版客户端曾错误地 `dev lo`，会导致 `ip route` 里出现经 loopback 的默认半表）。请使用 **`connect-ip-tun -route split`** 走 TUN，或在有自建隧道接口时 **`connect -route-dev <ifname>`**（禁止 `-route-dev lo`）。
-- 已存在 **`~/.masque-client.json`** 且含 `device_token` 时，**跳过登录/激活**，直接 `connect`。
-- 需已安装 **`masque-client`**（`PATH` 或设置 **`MASQUE_CLIENT=/path/to/masque-client`**）。
+1. 提示 **控制面 URL**（未预先设置 **`CONTROL_PLANE_URL`** 时；回车用默认 `https://www.afbuyers.com`）。
+2. 首次：提示 **邮箱、密码** → 凭证发码 → **`activate -verify`**；指纹 **`~/.config/masque-linux-client/device-fingerprint`**。
+3. 自动修正 **`masque_server_url`** 指向 **`127.0.0.1`** 的旧配置（**`MASQUE_SERVER_URL` / `DEFAULT_PUBLIC_MASQUE`**，见脚本注释）。
+4. 默认 **`exec sudo masque-client connect-ip-tun`**：**`-tun-name tun0`**（**`TUN_NAME`** 可改）、**`-route split`**、**`-apply-routes-from-capsule`**、**`-dns`**（**`MASQUE_TUN_DNS`** 或配置里 **`dns[]`** 或 **`1.1.1.1,8.8.8.8`**）；由 **`ADDRESS_REQUEST` / `ADDRESS_ASSIGN`** 配 **TUN IP**。**Ctrl+C** 退出并恢复。
+5. **QUIC 与 HTTPS 不同端口** 时：先 **`export CONNECT_IP_UDP=主机:端口`** 再运行。
+6. 仅 **Linux**；旧版仅 HTTP **`connect`**：**`LEGACY_CONNECT=1`** 且 **`CONNECT_MODE=dry-run|real`**。
+7. 已有 **`device_token`** 则跳过登录，直接 **`connect-ip-tun`**；**`MASQUE_CLIENT`** 可指向二进制路径。
 
 ### 依赖能力中的 UDP 地址
 
