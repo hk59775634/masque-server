@@ -926,7 +926,7 @@ func cmdVersion() {
 
 func usage() {
 	fmt.Println("usage: client <activate|connect|status|disconnect|doctor|connect-ip-tun|version|config <path|show|export|import>> [flags]")
-	fmt.Println("       client connect-ip-tun -h   # Linux TUN + CONNECT-IP; optional ADDRESS/ROUTE capsules; needs root/CAP_NET_ADMIN for ip")
+	fmt.Println("       client connect-ip-tun -h   # Linux TUN + CONNECT-IP; optional ADDRESS/ROUTE/split-default; reconnect; needs root/CAP_NET_ADMIN for ip")
 	fmt.Println("       client doctor -h   # list doctor flags (-control-plane, -masque-server, -loki, -tcp-probe, -connect-ip, -connect-ip-rfc9484-udp, -strict)")
 	fmt.Println("       client status -h   # list status flags (-live, -json)")
 	fmt.Println("       client connect -h  # list connect flags (-check, -dry-run, -connect-retries)")

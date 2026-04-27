@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -16,6 +17,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/quic-go/quic-go/http3"
 	"golang.org/x/sys/unix"
 )
 
@@ -32,12 +34,42 @@ func cmdConnectIPTun(args []string) {
 	fs.StringVar(&addrCIDR, "addr", "", "optional: run \"ip addr add <cidr> dev <if>\" after bring-up (requires CAP_NET_ADMIN / root); when unset, sends ADDRESS_REQUEST and applies server ADDRESS_ASSIGN (stub e.g. 192.0.2.1/32)")
 	mtu := fs.Int("mtu", 1280, "set interface MTU via ip-link (0 = skip)")
 	linkUp := fs.Bool("up", true, "run \"ip link set dev <if> up\"")
+	reconnect := fs.Bool("reconnect", true, "auto redial CONNECT-IP when stream/datagram path breaks")
+	reconnectInitialBackoff := fs.Duration("reconnect-initial-backoff", 1*time.Second, "initial backoff before reconnect retry")
+	reconnectMaxBackoff := fs.Duration("reconnect-max-backoff", 15*time.Second, "max backoff between reconnect retries")
+	reconnectMaxDialFailures := fs.Int("reconnect-max-dial-failures", 0, "exit after this many consecutive dial failures (0 = unlimited; resets after a successful dial)")
+	reconnectLogInterval := fs.Duration("reconnect-log-interval", 30*time.Second, "min interval between similar reconnect logs (0 = log every event)")
+	splitDefaultRoute := fs.Bool("split-default-route", false, "IPv4: install split default (0.0.0.0/1 + 128.0.0.0/1) via TUN (per §7.3 global-style routing); prefer -route split|all")
+	var routeMode string
+	fs.StringVar(&routeMode, "route", "", "IPv4 routing: empty (honour -split-default-route only), none, split, or all (all = split)")
+	var dnsCSV string
+	fs.StringVar(&dnsCSV, "dns", "", "comma-separated resolvers; overwrites /etc/resolv.conf with backup (root); restored on exit")
+	bypassMasqueHost := fs.Bool("bypass-masque-host", true, "with -route split|all (or -split-default-route): add /32 for QUIC server (and masque HTTPS host if different) via system default gateway (anti black-hole)")
+	reconnectMaxSessionDrops := fs.Int("reconnect-max-session-drops", 0, "exit after this many consecutive session drops after a successful dial (0 = unlimited; resets on each successful dial)")
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "usage: client connect-ip-tun [-masque-server URL] [-connect-ip-udp host:port] [-tun-name NAME] [-addr CIDR] [-no-address-capsule] [-apply-routes-from-capsule] [-mtu N] [-up=false]\n")
+		fmt.Fprintf(os.Stderr, "usage: client connect-ip-tun [-masque-server URL] [-connect-ip-udp host:port] [-tun-name NAME] [-addr CIDR] [-no-address-capsule] [-apply-routes-from-capsule] [-route none|split|all] [-split-default-route] [-dns 1.1.1.1,8.8.8.8] [-bypass-masque-host=true] [-mtu N] [-up=false] [-reconnect] [-reconnect-initial-backoff 1s] [-reconnect-max-backoff 15s] [-reconnect-max-dial-failures N] [-reconnect-max-session-drops N] [-reconnect-log-interval 30s]\n")
 		fmt.Fprintf(os.Stderr, "  Linux only. Opens CONNECT-IP, creates TUN, maps TUN <-> RFC 9484 CID0 datagrams. Ctrl+C to exit.\n")
 		fs.PrintDefaults()
 	}
 	_ = fs.Parse(args)
+
+	dnsList := parseCommaList(dnsCSV)
+	routeTrim := strings.TrimSpace(strings.ToLower(routeMode))
+	var doSplitRoutes bool
+	switch routeTrim {
+	case "":
+		doSplitRoutes = *splitDefaultRoute
+	case "none":
+		if *splitDefaultRoute {
+			log.Printf("connect-ip-tun: warn: -split-default-route ignored because -route=none")
+		}
+		doSplitRoutes = false
+	case "split", "all":
+		doSplitRoutes = true
+	default:
+		fmt.Fprintf(os.Stderr, "error: -route must be empty, none, split, or all\n")
+		os.Exit(1)
+	}
 
 	cfg, cfgLoaded := ClientConfig{}, false
 	if c, err := loadConfig(); err == nil {
@@ -76,37 +108,37 @@ func cmdConnectIPTun(args []string) {
 		os.Exit(1)
 	}
 
+	if len(dnsList) > 0 && os.Geteuid() != 0 {
+		fmt.Fprintf(os.Stderr, "error: -dns requires root to write /etc/resolv.conf\n")
+		os.Exit(1)
+	}
+	if doSplitRoutes || *applyRoutesFromCapsule || strings.TrimSpace(addrCIDR) != "" {
+		if os.Geteuid() != 0 && !hasCapNetAdminLinux() {
+			fmt.Fprintf(os.Stderr, "error: need root or CAP_NET_ADMIN for -route/-split-default-route/-apply-routes-from-capsule/-addr\n")
+			os.Exit(1)
+		}
+	}
+
 	tunFile, ifName, err := openLinuxTUN(tunName)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: open TUN: %v\n", err)
 		os.Exit(1)
 	}
 
+	var routeCleanup, dnsRestore func()
+	defer func() {
+		if routeCleanup != nil {
+			routeCleanup()
+		}
+		if dnsRestore != nil {
+			dnsRestore()
+		}
+	}()
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	dctx, dcancel := context.WithTimeout(ctx, 20*time.Second)
-	sess, err := dialConnectIP(dctx, udpTarget, cfg.DeviceToken, cfg.Fingerprint)
-	dcancel()
-	if err != nil {
-		_ = tunFile.Close()
-		fmt.Fprintf(os.Stderr, "error: CONNECT-IP: %v\n", err)
-		os.Exit(1)
-	}
-	defer sess.Close()
-
 	wantAutoAddr := !*noAddrCapsule && strings.TrimSpace(addrCIDR) == ""
-	if wantAutoAddr {
-		req := encodeAddressRequestIPv4Unspecified(connectIPCapsuleRequestID())
-		if _, err := sess.RS.Write(req); err != nil {
-			log.Printf("connect-ip-tun: warn: ADDRESS_REQUEST write: %v", err)
-		}
-	}
-	go func() {
-		if err := drainConnectIPCapsules(sess.Resp.Body, ifName, wantAutoAddr, *applyRoutesFromCapsule, nil); err != nil {
-			log.Printf("connect-ip-tun: capsule reader finished: %v", err)
-		}
-	}()
 
 	if *linkUp {
 		if err := runIP("link", "set", "dev", ifName, "up"); err != nil {
@@ -126,35 +158,195 @@ func cmdConnectIPTun(args []string) {
 		}
 	}
 
+	if len(dnsList) > 0 {
+		restore, derr := applyTunDNS(dnsList)
+		if derr != nil {
+			_ = tunFile.Close()
+			fmt.Fprintf(os.Stderr, "error: -dns: %v\n", derr)
+			os.Exit(1)
+		}
+		dnsRestore = restore
+		log.Printf("connect-ip-tun: wrote /etc/resolv.conf with %d nameserver(s)", len(dnsList))
+	}
+
+	if doSplitRoutes {
+		cleanup, rerr := installSplitDefaultAndBypass(ifName, udpTarget, masqueURL, *bypassMasqueHost)
+		if rerr != nil {
+			_ = tunFile.Close()
+			fmt.Fprintf(os.Stderr, "error: split default / bypass routes: %v\n", rerr)
+			os.Exit(1)
+		}
+		routeCleanup = cleanup
+		log.Printf("connect-ip-tun: installed IPv4 split-default via %s (bypass-masque-host=%v)", ifName, *bypassMasqueHost)
+	}
+
 	fmt.Printf("connect-ip-tun: if=%s udp=%s (Ctrl+C to stop)\n", ifName, udpTarget)
 
-	rs := sess.RS
-	var wg sync.WaitGroup
-	wg.Add(2)
+	if *reconnectInitialBackoff <= 0 {
+		*reconnectInitialBackoff = time.Second
+	}
+	if *reconnectMaxBackoff < *reconnectInitialBackoff {
+		*reconnectMaxBackoff = *reconnectInitialBackoff
+	}
 
+	packetCh := make(chan []byte, 256)
+	tunReadErrCh := make(chan error, 1)
+	go readTUNPackets(ctx, tunFile, packetCh, tunReadErrCh)
+
+	retryBackoff := *reconnectInitialBackoff
+	autoAddrApplied := false
+	dialThrottle := &logThrottle{minInterval: *reconnectLogInterval}
+	sessionThrottle := &logThrottle{minInterval: *reconnectLogInterval}
+	consecutiveDialFailures := 0
+	consecutiveSessionDrops := 0
+runLoop:
+	for {
+		if ctx.Err() != nil {
+			break
+		}
+		dctx, dcancel := context.WithTimeout(ctx, 20*time.Second)
+		sess, err := dialConnectIP(dctx, udpTarget, cfg.DeviceToken, cfg.Fingerprint)
+		dcancel()
+		if err != nil {
+			if !*reconnect {
+				_ = tunFile.Close()
+				fmt.Fprintf(os.Stderr, "error: CONNECT-IP: %v\n", err)
+				os.Exit(1)
+			}
+			consecutiveDialFailures++
+			if *reconnectMaxDialFailures > 0 && consecutiveDialFailures >= *reconnectMaxDialFailures {
+				_ = tunFile.Close()
+				fmt.Fprintf(os.Stderr, "error: CONNECT-IP: gave up after %d consecutive dial failures (last: %v)\n", consecutiveDialFailures, err)
+				os.Exit(1)
+			}
+			dialThrottle.maybeLog(func(suppressed int) {
+				if suppressed > 0 {
+					log.Printf("connect-ip-tun: dial failed: %v; reconnect in %s (%d similar since last log)", err, retryBackoff, suppressed)
+					return
+				}
+				log.Printf("connect-ip-tun: dial failed: %v; reconnect in %s", err, retryBackoff)
+			})
+			if !sleepWithContext(ctx, retryBackoff) {
+				break
+			}
+			retryBackoff = nextBackoff(retryBackoff, *reconnectMaxBackoff)
+			continue
+		}
+		consecutiveDialFailures = 0
+		consecutiveSessionDrops = 0
+		dialThrottle.reset()
+		sessionThrottle.reset()
+		log.Printf("connect-ip-tun: connected to %s", udpTarget)
+		retryBackoff = *reconnectInitialBackoff
+
+		wantAutoAddrThisSession := wantAutoAddr && !autoAddrApplied
+		assignCh := make(chan string, 1)
+		capsuleErrCh := make(chan error, 1)
+		go func() {
+			capsuleErrCh <- drainConnectIPCapsules(sess.Resp.Body, ifName, wantAutoAddrThisSession, *applyRoutesFromCapsule, assignCh)
+		}()
+		if wantAutoAddrThisSession {
+			req := encodeAddressRequestIPv4Unspecified(connectIPCapsuleRequestID())
+			if _, err := sess.RS.Write(req); err != nil {
+				log.Printf("connect-ip-tun: warn: ADDRESS_REQUEST write: %v", err)
+			}
+		}
+
+		sessionErr := runConnectIPSession(ctx, tunFile, sess.RS, packetCh, capsuleErrCh)
+		select {
+		case <-assignCh:
+			autoAddrApplied = true
+		default:
+		}
+		sess.Close()
+
+		if ctx.Err() != nil {
+			break
+		}
+		select {
+		case terr := <-tunReadErrCh:
+			if terr != nil && !errors.Is(terr, os.ErrClosed) && !errors.Is(terr, unix.EBADF) {
+				log.Printf("connect-ip-tun: TUN reader stopped: %v", terr)
+			}
+			break runLoop
+		default:
+		}
+		if sessionErr != nil && !errors.Is(sessionErr, context.Canceled) {
+			consecutiveSessionDrops++
+			if *reconnectMaxSessionDrops > 0 && consecutiveSessionDrops >= *reconnectMaxSessionDrops {
+				_ = tunFile.Close()
+				fmt.Fprintf(os.Stderr, "error: CONNECT-IP: gave up after %d consecutive session drops (last: %v)\n", consecutiveSessionDrops, sessionErr)
+				os.Exit(1)
+			}
+			sessionThrottle.maybeLog(func(suppressed int) {
+				if suppressed > 0 {
+					log.Printf("connect-ip-tun: session ended: %v (%d similar since last log)", sessionErr, suppressed)
+					return
+				}
+				log.Printf("connect-ip-tun: session ended: %v", sessionErr)
+			})
+		}
+		if !*reconnect {
+			break
+		}
+		if !sleepWithContext(ctx, retryBackoff) {
+			break
+		}
+		retryBackoff = nextBackoff(retryBackoff, *reconnectMaxBackoff)
+	}
+	_ = tunFile.Close()
+	fmt.Println("connect-ip-tun: stopped")
+}
+
+func readTUNPackets(ctx context.Context, tunFile *os.File, out chan<- []byte, errCh chan<- error) {
+	buf := make([]byte, 65536)
+	for {
+		n, err := tunFile.Read(buf)
+		if err != nil {
+			select {
+			case errCh <- err:
+			default:
+			}
+			return
+		}
+		if n <= 0 {
+			continue
+		}
+		pkt := append([]byte(nil), buf[:n]...)
+		select {
+		case out <- pkt:
+		default:
+			// Drop when disconnected/backlogged to avoid unbounded memory growth.
+		}
+		if ctx.Err() != nil {
+			return
+		}
+	}
+}
+
+func runConnectIPSession(ctx context.Context, tunFile *os.File, rs *http3.RequestStream, packetCh <-chan []byte, capsuleErrCh <-chan error) error {
+	sessCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	errCh := make(chan error, 3)
 	go func() {
-		defer wg.Done()
-		buf := make([]byte, 65536)
 		for {
-			n, err := tunFile.Read(buf)
-			if err != nil {
+			select {
+			case <-sessCtx.Done():
 				return
-			}
-			if n <= 0 {
-				continue
-			}
-			frame := rfc9484PrependContext0(append([]byte(nil), buf[:n]...))
-			if err := rs.SendDatagram(frame); err != nil {
-				return
+			case pkt := <-packetCh:
+				frame := rfc9484PrependContext0(pkt)
+				if err := rs.SendDatagram(frame); err != nil {
+					errCh <- fmt.Errorf("send datagram: %w", err)
+					return
+				}
 			}
 		}
 	}()
-
 	go func() {
-		defer wg.Done()
 		for {
-			dg, err := rs.ReceiveDatagram(ctx)
+			dg, err := rs.ReceiveDatagram(sessCtx)
 			if err != nil {
+				errCh <- fmt.Errorf("receive datagram: %w", err)
 				return
 			}
 			inner, err := rfc9484StripContext0(dg)
@@ -166,15 +358,84 @@ func cmdConnectIPTun(args []string) {
 				continue
 			}
 			if _, err := tunFile.Write(inner); err != nil {
+				errCh <- fmt.Errorf("write tun: %w", err)
 				return
 			}
 		}
 	}()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case err := <-capsuleErrCh:
+		if err == nil {
+			return fmt.Errorf("capsule stream closed")
+		}
+		return fmt.Errorf("capsule stream: %w", err)
+	case err := <-errCh:
+		return err
+	}
+}
 
-	<-ctx.Done()
-	_ = tunFile.Close()
-	wg.Wait()
-	fmt.Println("connect-ip-tun: stopped")
+func sleepWithContext(ctx context.Context, d time.Duration) bool {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-t.C:
+		return true
+	}
+}
+
+func nextBackoff(cur, max time.Duration) time.Duration {
+	if cur >= max {
+		return max
+	}
+	n := cur * 2
+	if n > max {
+		return max
+	}
+	return n
+}
+
+// logThrottle coalesces repeated log lines (e.g. during long outages).
+type logThrottle struct {
+	mu          sync.Mutex
+	minInterval time.Duration
+	lastEmit    time.Time
+	suppressed  int
+}
+
+func (t *logThrottle) reset() {
+	if t == nil {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.lastEmit = time.Time{}
+	t.suppressed = 0
+}
+
+func (t *logThrottle) maybeLog(emit func(suppressed int)) {
+	if t == nil {
+		emit(0)
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.minInterval <= 0 {
+		emit(0)
+		return
+	}
+	now := time.Now()
+	if t.lastEmit.IsZero() || now.Sub(t.lastEmit) >= t.minInterval {
+		sup := t.suppressed
+		t.suppressed = 0
+		emit(sup)
+		t.lastEmit = now
+		return
+	}
+	t.suppressed++
 }
 
 func openLinuxTUN(requestedName string) (*os.File, string, error) {

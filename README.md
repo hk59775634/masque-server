@@ -1,4 +1,4 @@
-# MASQUE VPN Monorepo (Phase 2a done; Phase 2b in progress)
+# MASQUE VPN Monorepo (Phase 2a done; Phase 2b stub done; production hardening ongoing)
 
 > **Chinese documentation / 中文说明：** [README.zh.md](./README.zh.md) — CONNECT-IP, QUIC stub, Linux `connect-ip-tun`, env vars, and metrics (中文专页).
 
@@ -6,12 +6,13 @@
 
 - **Phase 1（文档化交付 M1–M4）**：已闭环（控制面 + 最小 masque 桩 + Linux 客户端 + 可观测/部署/验收材料）；详见 `docs/release-notes/m1-m4-release-notes-2026-04-25.md` 与 `docs/runbooks/m4-go-live-acceptance-report-2026-04-25.md`。
 - **Phase 2a**：数据面探索与运维闭环（**服务端 TCP 探测** `POST /v1/masque/tcp-probe`、可选主监听 **HTTPS**、既有 E2E/可观测/客户端能力）；能力见 `GET /v1/masque/capabilities` 的 `tunnel.phase2a`。
-- **Phase 2b（当前迭代重心）**：端到端用户 **MASQUE/QUIC 隧道**、设备 **mTLS**、控制面↔masque **双向 TLS / 非 REST 硬化**、细粒度 **RBAC**。**未再单独编号为「M5」**（需求总览仍以 M1–M4 为 Phase 1 划分，见 `开发需求.md` §12）。
+- **Phase 2b（stub，本仓库已闭环）**：Linux **`connect-ip-tun`**（TUN ↔ RFC 9484 Context 0、ADDRESS/ROUTE 胶囊、**`-route split|all`** 分段默认路由、**`-bypass-masque-host`**、**`-dns`** 与退出恢复、`doctor -connect-ip`）、masque **CONNECT-IP 桩**（授权、capsule、可选 UDP/ICMP 中继、**主动 ROUTE_ADVERTISEMENT**、指标/告警/面板）。与 `开发需求.md` §7.1–§7.3 对齐的是 **stub 数据面 + 客户端路由/DNS 自动化**；**非**内核级全节点转发。
+- **Phase 2b（生产级，仍待办）**：设备 **mTLS** 与证书生命周期、控制面↔masque **双向 TLS / 非 REST 硬化**、细粒度 **RBAC**、服务端 **TUN/NAT/内核转发**（`开发需求.md` §6.1–§6.3）。
 
 ### 当前开发进度（简要）
 
-- **已完成（含 Phase 2a）**：端到端激活/连接桩（含 Docker E2E）、`MASQUE_SERVER_URL`、`connect -dry-run`、连接重试、会话 ID、运行时状态与 `status` 摘要、`disconnect` 幂等、Prometheus（含 authorize、tcp-probe 指标与告警）、masque **X-Request-ID** 与 `/connect` 日志、`/connect` **64KiB** 请求体上限、**tcp-probe** 与 **`doctor -tcp-probe`**、可选 **`LISTEN_TLS_*`** 主监听 TLS、客户端为每次 POST 带 **X-Request-ID**。
-- **未开始（Phase 2b）**：真实 MASQUE/QUIC **用户 IP 隧道**、设备 mTLS 与证书生命周期、控制面↔masque 双向 TLS/非 REST 硬化、细粒度 RBAC。
+- **已完成（含 Phase 2a + Phase 2b stub）**：端到端激活/连接桩（含 Docker E2E）、`MASQUE_SERVER_URL`、`connect -dry-run`、连接重试、会话 ID、运行时状态与 `status` 摘要、`disconnect` 幂等、Prometheus（含 authorize、tcp-probe、CONNECT-IP 指标与告警）、masque **X-Request-ID** 与 `/connect` 日志、`/connect` **64KiB** 请求体上限、**tcp-probe** 与 **`doctor -tcp-probe`**、可选 **`LISTEN_TLS_*`** 主监听 TLS、客户端为每次 POST 带 **X-Request-ID**；**CONNECT-IP stub** + **`connect-ip-tun`**（重连、日志节流、会话/拨号失败上限、分段默认路由、DNS 覆盖与恢复）。
+- **未开始（生产 Phase 2b 余项）**：mTLS 与证书生命周期、控制面↔masque 双向 TLS/非 REST 硬化、细粒度 RBAC、masque **内核 TUN/转发/NAT**。
 
 This repository contains a closed-loop implementation and M2 upgrades:
 
@@ -51,6 +52,7 @@ This repository contains a closed-loop implementation and M2 upgrades:
    - `go run ./cmd/client connect -dry-run` (POST `/connect` only; no `ip route` or `/etc/resolv.conf` changes — no root)
    - `go run ./cmd/client connect -connect-retries 2` (default 2 extra tries on masque **429 / 5xx** or transport errors; POST timeout 15s)
    - `sudo go run ./cmd/client disconnect`
+   - `sudo go run ./cmd/client connect-ip-tun -route split -dns 1.1.1.1 -apply-routes-from-capsule` (Linux only; see [README.zh.md](./README.zh.md) for flags)
 
 ## Current scope
 
@@ -66,7 +68,7 @@ Implemented:
 - Linux client route and DNS automation with disconnect restore; `doctor`, `config show|path|export|import` (`-verify` on import)
 - server metrics endpoint for Prometheus (`/metrics`); `/healthz` JSON includes `version` string (link-time `main.version`); `/connect` returns a unique `session` id (`msq_` + 32 hex) and exposes `masque_authorize_latency_seconds` for control-plane authorize RTT; **X-Request-ID** middleware on HTTP/1.1 router (echoed on responses, logged on `/connect` outcomes — no tokens); `/connect` rejects bodies **> 64KiB** with **413** (`masque_connect_failures_total{reason="payload_too_large"}`)
 - **Phase 2a:** `POST /v1/masque/tcp-probe` (JSON `device_token`, `fingerprint`, literal **`host` IP**, `port`) — authorize + ACL then **TCP dial from masque host**; metrics `masque_tcp_probe_*`; **`doctor -tcp-probe 1.1.1.1:443`**
-- **Phase 2b (stub):** with **`QUIC_LISTEN_ADDR`**, the UDP HTTP/3 listener accepts **extended CONNECT** with **`:protocol connect-ip`** (RFC 9484 shape). Before **200** it calls the same control-plane **`/api/v1/server/authorize`** as TCP (unless **`CONNECT_IP_SKIP_AUTH` / `MASQUE_CONNECT_IP_SKIP_AUTH`** is set for local dev), using **`Authorization: Bearer <device_token>`** and **`Device-Fingerprint`**. Then **200** + **`Capsule-Protocol: ?1`** and **RFC 9297 + RFC 9484** parsing: **ADDRESS_ASSIGN / ADDRESS_REQUEST / ROUTE_ADVERTISEMENT** payloads are decoded; **ROUTE_ADVERTISEMENT** ranges are checked against device policy (**both ends of the inclusive range must lie in the same `allow[].cidr`**; empty ACL allows all). After **ADDRESS_REQUEST**, the stub writes **ADDRESS_ASSIGN** (documentation **192.0.2.1/32** and **2001:db8::1/128** when unspecified; explicit preferred addresses must pass the same ACL rule). **HTTP/3 datagrams (RFC 9297)** are **negotiated** on the QUIC listener (SETTINGS); inbound datagrams use **RFC 9484** framing when a leading **QUIC varint Context ID** is present (**0** = raw IP packet follows; **non-zero** is dropped unless **`CONNECT_IP_STUB_ECHO_CONTEXTS`** lists that ID for dev peel); inner **IPv4/IPv6** is checked with the same **`allow[].cidr` / `protocol` / `port`** rules as **`POST /connect`**, then **echoed** if allowed (IPv6 **Hop-by-Hop / Routing / Destination / Fragment** extension headers are skipped before reading TCP/UDP ports); **opaque** inner payloads are echoed without IP parsing. **Not yet:** **IP-in-datagram** relay to the Internet or **TUN** / kernel routes. Metrics: **`masque_connect_ip_requests_total{result=...}`** (includes **`forbidden`**), **`masque_connect_ip_capsules_parsed_total`**, **`masque_connect_ip_capsule_parse_errors_total{cause}`**, **`masque_connect_ip_rfc9484_capsules_total{capsule}`**, **`masque_connect_ip_address_assign_writes_total`**, **`masque_connect_ip_datagrams_received_total`**, **`masque_connect_ip_datagrams_sent_total`**, **`masque_connect_ip_datagrams_dropped_total`**, **`masque_connect_ip_datagram_acl_denied_total`**, **`masque_connect_ip_datagram_unknown_context_total`**, **`masque_connect_ip_streams_active`** (gauge); **`client doctor -connect-ip`** (CONNECT + SETTINGS + **RFC 9484 Context ID 0** + **datagram echo**); optional **`doctor -connect-ip -connect-ip-rfc9484-udp`** sends a second **IPv4/UDP TEST-NET** probe (requires ACL to allow **192.0.2.1** UDP **53** when CONNECT-IP auth is on). Capabilities: **`GET /v1/masque/capabilities`** (`quic.connect_ip.rfc9484`).
+- **Phase 2b (stub):** with **`QUIC_LISTEN_ADDR`**, the UDP HTTP/3 listener accepts **extended CONNECT** with **`:protocol connect-ip`** (RFC 9484 shape). Before **200** it calls the same control-plane **`/api/v1/server/authorize`** as TCP (unless **`CONNECT_IP_SKIP_AUTH` / `MASQUE_CONNECT_IP_SKIP_AUTH`** is set for local dev), using **`Authorization: Bearer <device_token>`** and **`Device-Fingerprint`**. Then **200** + **`Capsule-Protocol: ?1`** and **RFC 9297 + RFC 9484** parsing: **ADDRESS_ASSIGN / ADDRESS_REQUEST / ROUTE_ADVERTISEMENT** payloads are decoded; **ROUTE_ADVERTISEMENT** ranges are checked against device policy (**both ends of the inclusive range must lie in the same `allow[].cidr`**; empty ACL allows all). After **ADDRESS_REQUEST**, the stub writes **ADDRESS_ASSIGN** (documentation **192.0.2.1/32** and **2001:db8::1/128** when unspecified; explicit preferred addresses must pass the same ACL rule). **HTTP/3 datagrams (RFC 9297)** are **negotiated** on the QUIC listener (SETTINGS); inbound datagrams use **RFC 9484** framing when a leading **QUIC varint Context ID** is present (**0** = raw IP packet follows; **non-zero** is dropped unless **`CONNECT_IP_STUB_ECHO_CONTEXTS`** lists that ID for dev peel); inner **IPv4/IPv6** is checked with the same **`allow[].cidr` / `protocol` / `port`** rules as **`POST /connect`**, then **echoed** if allowed (IPv6 **Hop-by-Hop / Routing / Destination / Fragment** extension headers are skipped before reading TCP/UDP ports); **opaque** inner payloads are echoed without IP parsing. **Linux client:** `connect-ip-tun` (TUN, `-route split|all`, `-dns`, reconnect). **Masque-server:** optional IPv4 UDP/ICMP relay + proactive ROUTE push — **no** kernel TUN/SNAT yet. Metrics: **`masque_connect_ip_requests_total{result=...}`** (includes **`forbidden`**), **`masque_connect_ip_capsules_parsed_total`**, **`masque_connect_ip_capsule_parse_errors_total{cause}`**, **`masque_connect_ip_rfc9484_capsules_total{capsule}`**, **`masque_connect_ip_address_assign_writes_total`**, **`masque_connect_ip_datagrams_received_total`**, **`masque_connect_ip_datagrams_sent_total`**, **`masque_connect_ip_datagrams_dropped_total`**, **`masque_connect_ip_datagram_acl_denied_total`**, **`masque_connect_ip_datagram_unknown_context_total`**, **`masque_connect_ip_streams_active`** (gauge); **`client doctor -connect-ip`** (CONNECT + SETTINGS + **RFC 9484 Context ID 0** + **datagram echo**); optional **`doctor -connect-ip -connect-ip-rfc9484-udp`** sends a second **IPv4/UDP TEST-NET** probe (requires ACL to allow **192.0.2.1** UDP **53** when CONNECT-IP auth is on). Capabilities: **`GET /v1/masque/capabilities`** (`quic.connect_ip.rfc9484`).
 - linux-client sends **X-Request-ID** (`cli_` + 16 hex) on `activate` and `connect` POSTs for log correlation with masque
 - Go binaries: `client version` / `server version` subcommands for release traceability (`-ldflags -X main.version|commit|date`)
 - CI workflow for Laravel + Go components (`.github/workflows/ci.yml`); Go job builds each binary with `-ldflags` (`main.version` = `ci-<run>` or tag name, `main.commit` = short SHA, `main.date` UTC) and runs `version` smoke
@@ -74,11 +76,12 @@ Implemented:
 - basic deploy and rollback scripts (`scripts/deploy/deploy.sh`, `scripts/deploy/rollback.sh`)
 - Prometheus alert rules + Alertmanager baseline config
 
-Not yet implemented (Phase 2b and beyond):
+Not yet implemented (production Phase 2b and beyond):
 
-- End-user MASQUE / QUIC **routed IP tunnel** (capsule parsing, policies, **IP-in-HTTP-Datagram** relay, TUN integration; QUIC listener has extended CONNECT, capsules, stub addressing, **RFC 9297 datagram SETTINGS**, and a **datagram echo** stub only)
+- **Kernel-routed** MASQUE / QUIC tunnel on masque-server (**TUN**, SNAT/NAT, full TCP/IPv6 path — today: user-space stub + optional IPv4 UDP/ICMP relay only)
 - mTLS certificate issuance/rotation/revocation for devices
 - Fine-grained RBAC beyond the `is_admin` flag (roles/permissions matrix)
+- Control-plane ↔ masque **mTLS** / gRPC-style hardened channel (beyond HTTPS authorize today)
 
 ## Client connect smoke (loopback)
 

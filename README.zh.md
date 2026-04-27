@@ -15,7 +15,8 @@
 
 - **Phase 1（M1–M4）**：控制面 + masque 最小桩 + Linux 客户端 + 可观测/部署材料；见 `docs/release-notes/`、`docs/runbooks/`。
 - **Phase 2a**：**`POST /v1/masque/tcp-probe`**（服务端代拨 TCP）、主监听可选 **HTTPS**、能力字段 `tunnel.phase2a`。
-- **Phase 2b（进行中）**：端到端 **MASQUE/QUIC 用户 IP 隧道**、设备 mTLS、控制面↔masque 双向 TLS 等仍在演进。当前仓库内已实现 **CONNECT-IP 协议桩**（capsule + HTTP Datagram、默认 echo ACL），并可选用 **`CONNECT_IP_UDP_RELAY`** / **`CONNECT_IP_ICMP_RELAY`** 分别做 **IPv4/UDP** 与 **IPv4 ICMP Echo（ping）** 用户态中继；**仍非**完整内核级 VPN 或全协议转发。
+- **Phase 2b（stub，本仓库已闭环）**：**CONNECT-IP 桩** + Linux **`connect-ip-tun`**（TUN、胶囊、分段默认路由、DNS 覆盖与退出恢复、重连与运维向参数、`doctor -connect-ip`）；可选 **`CONNECT_IP_UDP_RELAY`** / **`CONNECT_IP_ICMP_RELAY`** / **`CONNECT_IP_ROUTE_ADV_CIDR`**。**仍非** masque 侧内核级全协议 VPN。
+- **Phase 2b（生产级，仍待办）**：设备 **mTLS**、控制面↔masque **双向 TLS / 非 REST 硬化**、**RBAC**、服务端 **TUN/NAT/内核转发**（见 `开发需求.md` §6）。
 
 ## QUIC / CONNECT-IP 桩（masque-server）
 
@@ -87,11 +88,21 @@ go run ./cmd/client doctor -connect-ip -connect-ip-udp 127.0.0.1:8444 -connect-i
 sudo go run ./cmd/client connect-ip-tun -h
 sudo go run ./cmd/client connect-ip-tun [-masque-server URL] [-connect-ip-udp host:port] \
   [-tun-name NAME] [-addr 198.18.0.1/32] [-no-address-capsule] \
-  [-apply-routes-from-capsule] [-mtu 1280]
+  [-apply-routes-from-capsule] [-route split|all] [-dns 1.1.1.1,8.8.8.8] [-mtu 1280] [-reconnect=true] \
+  [-reconnect-initial-backoff 1s] [-reconnect-max-backoff 15s] \
+  [-reconnect-max-dial-failures 0] [-reconnect-max-session-drops 0] [-reconnect-log-interval 30s]
 ```
 
 - **未指定 `-addr`** 时，客户端会向流上发送 **RFC 9484 ADDRESS_REQUEST**（IPv4 未指定地址），并读取服务端 **ADDRESS_ASSIGN** 胶囊后执行 **`ip addr add <分配>/前缀 dev <tun>`**（stub 常见为 **192.0.2.1/32** 等文档地址，以策略为准）。若需完全手动配置地址，使用 **`-addr`** 或 **`-no-address-capsule`**。
 - 启用 **`-apply-routes-from-capsule`** 后，会尝试解析 **ROUTE_ADVERTISEMENT** 并执行 `ip route replace`（当前仅处理可精确表示为单个 CIDR 的 IPv4 范围；复杂区间会跳过并记录日志）。
+- 默认 **`-reconnect=true`**：若 QUIC/CONNECT-IP 会话中断，会保留同一个 TUN 接口并按退避重连（`-reconnect-initial-backoff` 到 `-reconnect-max-backoff`），减少手工重启客户端。
+- **`-reconnect-max-dial-failures N`**：`N>0` 时连续 **拨号** 失败达到 `N` 次则退出（成功拨号后计数清零；`0` 表示不限制）。
+- **`-reconnect-log-interval`**：拨号失败、会话结束类日志的最小间隔（默认 `30s`，`0` 表示每次都打日志），长时间断网时减轻刷屏。
+- **`-reconnect-max-session-drops N`**：`N>0` 时，在**已成功拨号**之后，若连续 **N** 次会话异常结束则退出（每次成功拨号后计数清零；`0` 不限制）。
+- **`-route split`** 或 **`-route all`**（与 **`-split-default-route`** 二选一即可，`all` 为 `split` 别名）：安装 **IPv4 分段默认路由** `0.0.0.0/1` 与 `128.0.0.0/1` 经 TUN（对齐 `开发需求.md` §7.3）；**`-route none`** 显式关闭，且会覆盖 `-split-default-route`；退出时自动删除。
+- **`-split-default-route`**：与 **`-route split`** 等价（保留兼容）；更推荐 **`-route`**。
+- **`-dns a,b,c`**：覆盖 **`/etc/resolv.conf`**（先读备份，进程退出时恢复）；**需要 root**；若检测到 **`systemd-resolved` stub** 链到该文件，会打一条 **warn**（完整 resolved 集成仍属生产项）。
+- **`-bypass-masque-host`**（默认 `true`，且仅在启用分段默认路由时生效）：为 **QUIC 目标主机**（及 `-masque-server` 若解析出不同 IPv4）添加 **`/32` 经当前默认网关** 的绕行，避免黑洞。
 - 默认服务端仍为 **echo 桩**；若开启 **`CONNECT_IP_UDP_RELAY`** / **`CONNECT_IP_ICMP_RELAY`**，则 **IPv4 UDP**（如 DNS）或 **ping** 可走真实应答，便于联调。
 - 非 Linux 平台编译出的二进制执行该子命令会提示仅支持 Linux。
 
