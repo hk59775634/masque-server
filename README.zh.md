@@ -124,3 +124,11 @@ sudo go run ./cmd/client connect-ip-tun [-masque-server URL] [-connect-ip-udp ho
 
 - **`CONNECT_IP_SKIP_AUTH`**、**`CONNECT_IP_STUB_ECHO_CONTEXTS`**、**`CONNECT_IP_UDP_RELAY`**、**`CONNECT_IP_ICMP_RELAY`**、**`CONNECT_IP_TUN_FORWARD`**、**`CONNECT_IP_TUN_LINK_UP`** 均可能扩大攻击面，仅应在受控环境使用。
 - 生产环境应使用正式 TLS、强制设备鉴权，并对中继与路由做独立安全评审。
+
+## 告警 Mock 接收器提示配置
+
+- 文件：`scripts/alerts/suggestions.yml`
+- 作用：为 `scripts/alerts/mock_receiver.py` 按 `alertname` 显示“建议下一步排查”。
+- 语法（简化 YAML）：
+  - 顶层键：告警名（如 `MasqueConnectIPTunLinkUpFailures`）
+  - 值：`- ` 开头的步骤列表

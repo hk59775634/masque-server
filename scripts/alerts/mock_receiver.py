@@ -2,9 +2,10 @@
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import json
 from datetime import datetime
+from pathlib import Path
 
 
-SUGGESTIONS = {
+DEFAULT_SUGGESTIONS = {
     "MasqueConnectIPTunOpenEchoFallback": [
         "Check /dev/net/tun exists and masque-server has CAP_NET_ADMIN/root.",
         "Verify CONNECT_IP_TUN_FORWARD=1 and CONNECT_IP_TUN_NAME (if set) are valid.",
@@ -24,6 +25,49 @@ SUGGESTIONS = {
         "Ensure both route start/end fall within one ACL rule (server policy rule).",
     ],
 }
+
+
+def parse_suggestions_yaml(path):
+    """
+    Parse a tiny subset of YAML:
+      AlertName:
+        - step one
+        - step two
+    Returns dict[str, list[str]].
+    """
+    out = {}
+    current = None
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.rstrip()
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if not line.startswith(" ") and stripped.endswith(":"):
+            current = stripped[:-1].strip()
+            if current:
+                out.setdefault(current, [])
+            continue
+        if current and stripped.startswith("- "):
+            out[current].append(stripped[2:].strip())
+    return out
+
+
+def load_suggestions():
+    cfg = Path(__file__).with_name("suggestions.yml")
+    if not cfg.exists():
+        return DEFAULT_SUGGESTIONS
+    try:
+        parsed = parse_suggestions_yaml(cfg)
+        if parsed:
+            print(f"Loaded suggestions from {cfg}", flush=True)
+            return parsed
+        print(f"Suggestions file {cfg} parsed empty; using defaults", flush=True)
+    except Exception as exc:
+        print(f"Failed to parse {cfg}: {exc}; using defaults", flush=True)
+    return DEFAULT_SUGGESTIONS
+
+
+SUGGESTIONS = load_suggestions()
 
 
 def first_non_empty(*vals):

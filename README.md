@@ -110,6 +110,7 @@ Alert rules included:
 
 1. Start mock receiver on host:
    - `./scripts/alerts/start-mock-receiver.sh`
+   - Optional: edit `scripts/alerts/suggestions.yml` to customize per-alert triage hints shown by the mock receiver.
 2. Submit a manual alert:
    - `./scripts/alerts/send-test-alert.sh`
 3. Confirm delivery in receiver output logs.
