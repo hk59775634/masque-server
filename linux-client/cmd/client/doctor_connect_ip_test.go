@@ -61,3 +61,14 @@ func TestQuicUDPAddrFromCapabilitiesFullHost(t *testing.T) {
 		t.Fatalf("got %q", out)
 	}
 }
+
+func TestQuicUDPAddrFromCapabilitiesTunnelQuic(t *testing.T) {
+	raw := []byte(`{"tunnel":{"quic":{"listen_udp_addr":":8444","enabled":true}}}`)
+	out, err := quicUDPAddrFromCapabilities(raw, "http://www.example.com:8443")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != "www.example.com:8444" {
+		t.Fatalf("got %q want www.example.com:8444", out)
+	}
+}

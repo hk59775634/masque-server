@@ -10,7 +10,10 @@
 #   MASQUE_CLIENT         path to masque-client (default: masque-client in PATH)
 #   TUN_NAME              default tun0
 #   MASQUE_TUN_DNS        comma DNS e.g. 1.1.1.1,8.8.8.8 (else from ~/.masque-client.json dns[], else 1.1.1.1,8.8.8.8)
-#   CONNECT_IP_UDP        e.g. www.afbuyers.com:8444 when masque QUIC is not on HTTPS host:443
+#   CONNECT_IP_UDP        QUIC UDP host:port (e.g. www.afbuyers.com:8444). If unset, script infers
+#                         host from masque_server_url in ~/.masque-client.json + AUTO_CONNECT_IP_UDP_PORT (default 8444).
+#   AUTO_CONNECT_IP_UDP   default 1; set 0 to skip inference (then you must set CONNECT_IP_UDP or enable QUIC on masque).
+#   AUTO_CONNECT_IP_UDP_PORT  default 8444 (common alongside HTTP :8443)
 #   MASQUE_SERVER_URL / DEFAULT_PUBLIC_MASQUE / SKIP_MASQUE_CONFIG_FIX   (fix loopback masque in saved JSON)
 #   LEGACY_CONNECT=1      use old HTTP connect only (CONNECT_MODE=dry-run|real), no TUN
 set -euo pipefail
@@ -170,12 +173,42 @@ if [[ -z "${DNS_CSV// }" ]] && [[ -f "${CONFIG_FILE}" ]]; then
 fi
 [[ -n "${DNS_CSV// }" ]] || DNS_CSV="1.1.1.1,8.8.8.8"
 
+# When masque has no QUIC in GET /capabilities, client still needs -connect-ip-udp; infer host from saved HTTP base URL.
+infer_connect_ip_udp_from_config() {
+	if [[ -n "${CONNECT_IP_UDP:-}" ]]; then
+		return
+	fi
+	if [[ "${AUTO_CONNECT_IP_UDP:-1}" == "0" ]]; then
+		return
+	fi
+	[[ -f "${CONFIG_FILE}" ]] || return
+	local ms
+	ms="$(python3 -c 'import json,sys; print((json.load(open(sys.argv[1])).get("masque_server_url") or "").strip())' "${CONFIG_FILE}" 2>/dev/null)" || return
+	[[ -n "${ms}" ]] || return
+	local inferred
+	inferred="$(python3 -c '
+import sys
+from urllib.parse import urlparse
+u = urlparse(sys.argv[1])
+h = u.hostname
+if not h:
+    raise SystemExit(1)
+port = int(sys.argv[2])
+print("%s:%d" % (h, port))
+' "${ms}" "${AUTO_CONNECT_IP_UDP_PORT:-8444}")" || return
+	CONNECT_IP_UDP="${inferred}"
+	echo "[quick] inferred CONNECT_IP_UDP=${CONNECT_IP_UDP} (override with CONNECT_IP_UDP=... or set AUTO_CONNECT_IP_UDP=0)"
+}
+
+infer_connect_ip_udp_from_config
+
 TUN_ARGS=( -tun-name "${TUN_NAME}" -route split -apply-routes-from-capsule -dns "${DNS_CSV}" )
 if [[ -n "${CONNECT_IP_UDP:-}" ]]; then
 	TUN_ARGS+=( -connect-ip-udp "${CONNECT_IP_UDP}" )
+else
+	echo "[quick] warn: CONNECT_IP_UDP unset and could not infer from ${CONFIG_FILE}; connect-ip-tun needs QUIC. Set CONNECT_IP_UDP or enable QUIC_LISTEN_ADDR on masque-server." >&2
 fi
 
-echo "[quick] VPN: interface=${TUN_NAME} dns=${DNS_CSV}"
-echo "[quick] masque UDP/capabilities: set CONNECT_IP_UDP=host:port if QUIC is not on the HTTPS hostname (see masque QUIC_LISTEN_ADDR)."
+echo "[quick] VPN: interface=${TUN_NAME} dns=${DNS_CSV} udp=${CONNECT_IP_UDP:-<from capabilities — may fail>}"
 echo "[quick] starting connect-ip-tun (sudo; Ctrl+C to exit and restore DNS/routes)..."
 exec sudo -E env "PATH=${PATH}" "${MASQUE_CLIENT}" connect-ip-tun "${TUN_ARGS[@]}"

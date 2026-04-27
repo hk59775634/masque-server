@@ -77,7 +77,7 @@ go run ./cmd/server
 2. 首次：提示 **邮箱、密码** → 凭证发码 → **`activate -verify`**；指纹 **`~/.config/masque-linux-client/device-fingerprint`**。
 3. 自动修正 **`masque_server_url`** 指向 **`127.0.0.1`** 的旧配置（**`MASQUE_SERVER_URL` / `DEFAULT_PUBLIC_MASQUE`**，见脚本注释）。
 4. 默认 **`exec sudo masque-client connect-ip-tun`**：**`-tun-name tun0`**（**`TUN_NAME`** 可改）、**`-route split`**、**`-apply-routes-from-capsule`**、**`-dns`**（**`MASQUE_TUN_DNS`** 或配置里 **`dns[]`** 或 **`1.1.1.1,8.8.8.8`**）；由 **`ADDRESS_REQUEST` / `ADDRESS_ASSIGN`** 配 **TUN IP**。**Ctrl+C** 退出并恢复。
-5. **QUIC 与 HTTPS 不同端口** 时：先 **`export CONNECT_IP_UDP=主机:端口`** 再运行。
+5. **QUIC 与 HTTPS 不同端口** / 能力里未宣告 UDP：脚本会从未设置 **`CONNECT_IP_UDP`** 时，根据 **`masque_server_url` 主机名** 推断 **`主机:8444`**（**`AUTO_CONNECT_IP_UDP_PORT`** 可调，**`AUTO_CONNECT_IP_UDP=0`** 关闭）。服务端仍需 **`QUIC_LISTEN_ADDR`** 在该 UDP 端口监听。
 6. 仅 **Linux**；旧版仅 HTTP **`connect`**：**`LEGACY_CONNECT=1`** 且 **`CONNECT_MODE=dry-run|real`**。
 7. 已有 **`device_token`** 则跳过登录，直接 **`connect-ip-tun`**；**`MASQUE_CLIENT`** 可指向二进制路径。
 

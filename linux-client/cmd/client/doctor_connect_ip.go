@@ -16,24 +16,29 @@ import (
 
 const masqueConnectIPProto = "connect-ip"
 
-// quicUDPAddrFromCapabilities parses transport.http3_stub.listen_udp and merges host from masqueBaseURL when listen_udp is ":port".
+// quicUDPAddrFromCapabilities resolves the QUIC UDP dial target from GET /v1/masque/capabilities.
+// It accepts either legacy transport.http3_stub.listen_udp or tunnel.quic.listen_udp_addr (e.g. ":8444").
 func quicUDPAddrFromCapabilities(capJSON []byte, masqueBaseURL string) (string, error) {
 	var doc map[string]any
 	if err := json.Unmarshal(capJSON, &doc); err != nil {
 		return "", err
 	}
-	tr, _ := doc["transport"].(map[string]any)
-	if tr == nil {
-		return "", fmt.Errorf("capabilities: missing transport")
+	var listenUDP string
+	if tr, _ := doc["transport"].(map[string]any); tr != nil {
+		if stub, _ := tr["http3_stub"].(map[string]any); stub != nil {
+			listenUDP, _ = stub["listen_udp"].(string)
+		}
 	}
-	stub, _ := tr["http3_stub"].(map[string]any)
-	if stub == nil {
-		return "", fmt.Errorf("capabilities: QUIC stub not advertised (set QUIC_LISTEN_ADDR on masque-server)")
+	if strings.TrimSpace(listenUDP) == "" {
+		if tun, _ := doc["tunnel"].(map[string]any); tun != nil {
+			if quic, _ := tun["quic"].(map[string]any); quic != nil {
+				listenUDP, _ = quic["listen_udp_addr"].(string)
+			}
+		}
 	}
-	listenUDP, _ := stub["listen_udp"].(string)
 	listenUDP = strings.TrimSpace(listenUDP)
 	if listenUDP == "" {
-		return "", fmt.Errorf("capabilities: empty transport.http3_stub.listen_udp")
+		return "", fmt.Errorf("capabilities: QUIC UDP not advertised (set QUIC_LISTEN_ADDR on masque-server; expect transport.http3_stub.listen_udp or tunnel.quic.listen_udp_addr)")
 	}
 
 	host, port, err := net.SplitHostPort(listenUDP)
