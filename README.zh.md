@@ -131,4 +131,5 @@ sudo go run ./cmd/client connect-ip-tun [-masque-server URL] [-connect-ip-udp ho
 - 作用：为 `scripts/alerts/mock_receiver.py` 按 `alertname` 显示“建议下一步排查”。
 - 语法（简化 YAML）：
   - 顶层键：告警名（如 `MasqueConnectIPTunLinkUpFailures`）
-  - 值：`- ` 开头的步骤列表
+  - `steps`：`- ` 开头的排查步骤列表
+  - `commands`（可选）：`- ` 开头的命令模板列表（mock receiver 会单独打印，方便复制执行）

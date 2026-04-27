@@ -6,24 +6,40 @@ from pathlib import Path
 
 
 DEFAULT_SUGGESTIONS = {
-    "MasqueConnectIPTunOpenEchoFallback": [
-        "Check /dev/net/tun exists and masque-server has CAP_NET_ADMIN/root.",
-        "Verify CONNECT_IP_TUN_FORWARD=1 and CONNECT_IP_TUN_NAME (if set) are valid.",
-        "Inspect masque logs around 'tun forward unavailable' for exact errno.",
-    ],
-    "MasqueConnectIPTunLinkUpFailures": [
-        "Verify ip(8) is present in PATH for the masque-server process.",
-        "Check CAP_NET_ADMIN/root; run manual `ip link set dev <tun> up` on host.",
-        "Confirm CONNECT_IP_TUN_LINK_UP is intended; disable if host manages link state.",
-    ],
-    "MasqueConnectIPRoutePushInvalidCIDR": [
-        "Validate CONNECT_IP_ROUTE_ADV_CIDR format and mask.",
-        "Confirm deployed env matches expected CIDR value (no trailing spaces).",
-    ],
-    "MasqueConnectIPRoutePushACLDenied": [
-        "Compare CONNECT_IP_ROUTE_ADV_CIDR range against device ACL allow.cidr.",
-        "Ensure both route start/end fall within one ACL rule (server policy rule).",
-    ],
+    "MasqueConnectIPTunOpenEchoFallback": {
+        "steps": [
+            "Check /dev/net/tun exists and masque-server has CAP_NET_ADMIN/root.",
+            "Verify CONNECT_IP_TUN_FORWARD=1 and CONNECT_IP_TUN_NAME (if set) are valid.",
+            "Inspect masque logs around 'tun forward unavailable' for exact errno.",
+        ],
+        "commands": [
+            "ls -l /dev/net/tun",
+            "journalctl -u masque-server -n 200 --no-pager | rg \"tun forward unavailable|CONNECT_IP_TUN_FORWARD\"",
+        ],
+    },
+    "MasqueConnectIPTunLinkUpFailures": {
+        "steps": [
+            "Verify ip(8) is present in PATH for the masque-server process.",
+            "Check CAP_NET_ADMIN/root; run manual `ip link set dev <tun> up` on host.",
+            "Confirm CONNECT_IP_TUN_LINK_UP is intended; disable if host manages link state.",
+        ],
+        "commands": [
+            "command -v ip",
+            "journalctl -u masque-server -n 200 --no-pager | rg \"CONNECT_IP_TUN_LINK_UP|ip link set dev\"",
+        ],
+    },
+    "MasqueConnectIPRoutePushInvalidCIDR": {
+        "steps": [
+            "Validate CONNECT_IP_ROUTE_ADV_CIDR format and mask.",
+            "Confirm deployed env matches expected CIDR value (no trailing spaces).",
+        ]
+    },
+    "MasqueConnectIPRoutePushACLDenied": {
+        "steps": [
+            "Compare CONNECT_IP_ROUTE_ADV_CIDR range against device ACL allow.cidr.",
+            "Ensure both route start/end fall within one ACL rule (server policy rule).",
+        ]
+    },
 }
 
 
@@ -31,12 +47,18 @@ def parse_suggestions_yaml(path):
     """
     Parse a tiny subset of YAML:
       AlertName:
+        steps:
+          - step one
+        commands:
+          - cmd one
+    Also accepts legacy flat list:
+      AlertName:
         - step one
-        - step two
-    Returns dict[str, list[str]].
+    Returns dict[str, dict[str, list[str]]].
     """
     out = {}
     current = None
+    section = None
     for raw in path.read_text(encoding="utf-8").splitlines():
         line = raw.rstrip()
         stripped = line.strip()
@@ -44,11 +66,20 @@ def parse_suggestions_yaml(path):
             continue
         if not line.startswith(" ") and stripped.endswith(":"):
             current = stripped[:-1].strip()
+            section = None
             if current:
-                out.setdefault(current, [])
+                out.setdefault(current, {"steps": [], "commands": []})
+            continue
+        if current and line.startswith("  ") and stripped in ("steps:", "commands:"):
+            section = stripped[:-1]
             continue
         if current and stripped.startswith("- "):
-            out[current].append(stripped[2:].strip())
+            item = stripped[2:].strip()
+            if section in ("steps", "commands"):
+                out[current][section].append(item)
+            else:
+                # legacy list syntax defaults to steps
+                out[current]["steps"].append(item)
     return out
 
 
@@ -75,6 +106,21 @@ def first_non_empty(*vals):
         if isinstance(v, str) and v.strip():
             return v.strip()
     return ""
+
+
+def suggestion_entry(name):
+    entry = SUGGESTIONS.get(name)
+    if entry is None:
+        return None
+    if isinstance(entry, list):
+        # backward compatibility with older map schema
+        return {"steps": entry, "commands": []}
+    if isinstance(entry, dict):
+        steps = entry.get("steps") or []
+        commands = entry.get("commands") or []
+        if isinstance(steps, list) and isinstance(commands, list):
+            return {"steps": steps, "commands": commands}
+    return None
 
 
 def print_alertmanager_summary(payload):
@@ -122,11 +168,15 @@ def print_alertmanager_summary(payload):
             print(f"      starts_at: {starts_at}", flush=True)
         if ends_at:
             print(f"      ends_at: {ends_at}", flush=True)
-        suggested = SUGGESTIONS.get(name)
-        if suggested:
+        suggested = suggestion_entry(name)
+        if suggested and suggested.get("steps"):
             print("      suggested_next_steps:", flush=True)
-            for step in suggested:
+            for step in suggested["steps"]:
                 print(f"        - {step}", flush=True)
+        if suggested and suggested.get("commands"):
+            print("      suggested_commands:", flush=True)
+            for cmd in suggested["commands"]:
+                print(f"        - {cmd}", flush=True)
     return True
 
 
