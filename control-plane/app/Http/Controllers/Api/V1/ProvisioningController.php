@@ -136,11 +136,28 @@ class ProvisioningController extends Controller
         }
 
         $tokenExpiresAt = now()->addHours(self::TOKEN_TTL_HOURS);
-        if (Device::query()->where('fingerprint', $activation->fingerprint)->exists()) {
-            return response()->json([
-                'message' => 'Device with this fingerprint is already registered.',
-                'hint' => 'If you still have ~/.masque-client.json, run connect only. Otherwise remove the device in admin or delete your local fingerprint file and enroll again.',
-            ], 409);
+
+        $existing = Device::query()->where('fingerprint', $activation->fingerprint)->first();
+        if ($existing !== null) {
+            if ((int) $existing->user_id !== (int) $activation->user_id) {
+                return response()->json([
+                    'message' => 'Device with this fingerprint is already registered to a different account.',
+                ], 409);
+            }
+
+            $jwtToken = $this->issueDeviceJwt($activation->user_id, $activation->fingerprint, $tokenExpiresAt);
+            $existing->update([
+                'device_name' => $activation->device_name,
+                'api_token_hash' => hash('sha256', $jwtToken),
+                'token_expires_at' => $tokenExpiresAt,
+                'last_seen_at' => now(),
+                'status' => 'active',
+            ]);
+
+            $activation->update(['used_at' => now()]);
+            $this->audit('device.reactivated', 'Device token reissued (same fingerprint, new activation code)', $request, $activation->user_id, $existing->id);
+
+            return $this->jsonActivateResponse($existing, $jwtToken);
         }
 
         $jwtToken = $this->issueDeviceJwt($activation->user_id, $activation->fingerprint, $tokenExpiresAt);
@@ -160,6 +177,13 @@ class ProvisioningController extends Controller
         $activation->update(['used_at' => now()]);
         $this->audit('device.activated', 'Device activated', $request, $activation->user_id, $device->id);
 
+        return $this->jsonActivateResponse($device, $jwtToken);
+    }
+
+    private function jsonActivateResponse(Device $device, string $jwtToken): JsonResponse
+    {
+        $policy = $this->resolvedPolicy($device);
+
         return response()->json([
             'device_id' => $device->id,
             'device_token' => $jwtToken,
@@ -167,8 +191,8 @@ class ProvisioningController extends Controller
                 'server_addr' => config('services.masque.server_url'),
                 'sni' => 'masque.afbuyers.local',
                 'alpn' => 'h3',
-                'dns' => ['1.1.1.1', '8.8.8.8'],
-                'routes' => ['0.0.0.0/1', '128.0.0.0/1'],
+                'dns' => $policy['dns'],
+                'routes' => $policy['routes'],
                 'policy_version' => 1,
             ],
         ]);

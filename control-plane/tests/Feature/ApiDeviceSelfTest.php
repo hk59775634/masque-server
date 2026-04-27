@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\Device;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -52,6 +53,48 @@ class ApiDeviceSelfTest extends TestCase
             ->assertJsonPath('policy.route_mode', 'all');
 
         $this->assertArrayNotHasKey('api_token_hash', $self->json('device') ?? []);
+    }
+
+    public function test_activate_reissues_token_when_fingerprint_already_registered_same_user(): void
+    {
+        $this->postJson('/api/v1/users', [
+            'name' => 'Reactivate User',
+            'email' => 'reactivate@example.com',
+            'password' => 'password123',
+        ])->assertStatus(201);
+
+        $c1 = $this->postJson('/api/v1/devices/activation-code-with-credentials', [
+            'email' => 'reactivate@example.com',
+            'password' => 'password123',
+            'fingerprint' => 'fp-reactivate-same',
+            'device_name' => 'd1',
+        ])->assertStatus(201)->json('activation_code');
+
+        $a1 = $this->postJson('/api/v1/activate', [
+            'activation_code' => $c1,
+            'fingerprint' => 'fp-reactivate-same',
+        ])->assertOk();
+        $token1 = $a1->json('device_token');
+        $deviceId = $a1->json('device_id');
+        $this->assertNotEmpty($token1);
+
+        $c2 = $this->postJson('/api/v1/devices/activation-code-with-credentials', [
+            'email' => 'reactivate@example.com',
+            'password' => 'password123',
+            'fingerprint' => 'fp-reactivate-same',
+            'device_name' => 'd2',
+        ])->assertStatus(201)->json('activation_code');
+
+        $a2 = $this->postJson('/api/v1/activate', [
+            'activation_code' => $c2,
+            'fingerprint' => 'fp-reactivate-same',
+        ])->assertOk();
+        $token2 = $a2->json('device_token');
+        $this->assertNotEmpty($token2);
+        $this->assertNotSame($token1, $token2);
+        $this->assertSame($deviceId, $a2->json('device_id'));
+
+        $this->assertSame(1, Device::query()->where('fingerprint', 'fp-reactivate-same')->count());
     }
 
     public function test_issue_activation_code_with_credentials_requires_valid_login(): void
