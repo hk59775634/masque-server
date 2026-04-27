@@ -59,6 +59,7 @@ type connectResponse struct {
 
 type RuntimeState struct {
 	AddedRoutes      []string `json:"added_routes"`
+	RouteDev         string   `json:"route_dev,omitempty"`
 	ResolvConfBackup string   `json:"resolv_conf_backup"`
 	Session          string   `json:"session,omitempty"`
 	ConnectedAt      string   `json:"connected_at,omitempty"`
@@ -187,8 +188,9 @@ func cmdConnect(args []string) {
 	dryRun := fs.Bool("dry-run", false, "POST /connect only; print response and exit without ip route or /etc/resolv.conf changes (no root)")
 	connectRetries := fs.Int("connect-retries", 2, "extra attempts for POST /connect on 429, 5xx, or transport errors (0 = single try)")
 	masqueOverride := fs.String("masque-server", "", "MASQUE base URL for this connect only (default: masque_server_url from saved config)")
+	routeDev := fs.String("route-dev", "", "Linux: apply server policy routes via this interface (required when routes are non-empty; never lo). Split defaults need a TUN — use connect-ip-tun, or pass your tunnel ifname")
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "usage: client connect [-check] [-dry-run] [-connect-retries N] [-masque-server URL]\n")
+		fmt.Fprintf(os.Stderr, "usage: client connect [-check] [-dry-run] [-connect-retries N] [-masque-server URL] [-route-dev IFNAME]\n")
 		fs.PrintDefaults()
 	}
 	_ = fs.Parse(args)
@@ -238,8 +240,18 @@ func cmdConnect(args []string) {
 	}
 
 	state := RuntimeState{}
-	if err := applyRoutes(resp.Routes, &state); err != nil {
-		fatal(err)
+	rd := strings.TrimSpace(*routeDev)
+	if len(resp.Routes) > 0 {
+		if rd == "" {
+			fmt.Fprintf(os.Stderr, "connect: warn: not applying %d route(s) %v: pass -route-dev <ifname> (policy routes must not target lo). For split defaults use: connect-ip-tun -route split ...\n",
+				len(resp.Routes), resp.Routes)
+		} else if rd == "lo" {
+			fatal(errors.New("connect: -route-dev lo is not allowed"))
+		} else {
+			if err := applyRoutes(resp.Routes, rd, &state); err != nil {
+				fatal(err)
+			}
+		}
 	}
 	if err := applyDNS(resp.DNS, &state); err != nil {
 		_ = restoreRuntime(state)
@@ -253,6 +265,9 @@ func cmdConnect(args []string) {
 	}
 
 	fmt.Printf("connected: session=%s routes=%v dns=%v\n", resp.Session, resp.Routes, resp.DNS)
+	if len(resp.Routes) > 0 && strings.TrimSpace(*routeDev) == "" {
+		fmt.Fprintf(os.Stderr, "connect: note: those routes were not installed on the host (missing -route-dev); use connect-ip-tun for split defaults.\n")
+	}
 }
 
 func cmdStatus(args []string) {
@@ -1152,16 +1167,24 @@ func validateClientConfig(cfg *ClientConfig) error {
 	return nil
 }
 
-func applyRoutes(routes []string, state *RuntimeState) error {
+func applyRoutes(routes []string, routeDev string, state *RuntimeState) error {
+	routeDev = strings.TrimSpace(routeDev)
+	if routeDev == "" {
+		return errors.New("applyRoutes: empty route dev")
+	}
+	if routeDev == "lo" {
+		return errors.New("applyRoutes: route dev must not be lo")
+	}
 	for _, route := range routes {
 		if strings.TrimSpace(route) == "" {
 			continue
 		}
-		if err := run("ip", "route", "replace", route, "dev", "lo"); err != nil {
+		if err := run("ip", "route", "replace", route, "dev", routeDev); err != nil {
 			return fmt.Errorf("apply route %s: %w", route, err)
 		}
 		state.AddedRoutes = append(state.AddedRoutes, route)
 	}
+	state.RouteDev = routeDev
 	return nil
 }
 
@@ -1186,8 +1209,12 @@ func applyDNS(servers []string, state *RuntimeState) error {
 }
 
 func restoreRuntime(state RuntimeState) error {
+	dev := strings.TrimSpace(state.RouteDev)
+	if dev == "" {
+		dev = "lo"
+	}
 	for _, route := range state.AddedRoutes {
-		_ = run("ip", "route", "del", route, "dev", "lo")
+		_ = run("ip", "route", "del", route, "dev", dev)
 	}
 	if state.ResolvConfBackup != "" {
 		if err := os.WriteFile("/etc/resolv.conf", []byte(state.ResolvConfBackup), 0o644); err != nil {

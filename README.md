@@ -52,6 +52,7 @@ This repository contains a closed-loop implementation and M2 upgrades:
    - `go run ./cmd/client status -live` (local summary + `GET /api/v1/devices/self`); `status -json` / `status -json -live` for machine-readable output
    - `sudo go run ./cmd/client connect` (optional `connect -check` to require control plane `GET /api/v1/devices/self` OK before masque)
    - `go run ./cmd/client connect [-masque-server URL] ...` (override saved `masque_server_url` for this run if config still points at `127.0.0.1` from an old activate)
+   - `go run ./cmd/client connect -route-dev tun0` (Linux only: apply policy routes via **TUN/other ifname**; **never** `lo` — older builds wrongly used `lo` for split defaults and broke networking)
    - `go run ./cmd/client connect -dry-run` (POST `/connect` only; no `ip route` or `/etc/resolv.conf` changes — no root)
    - `go run ./cmd/client connect -connect-retries 2` (default 2 extra tries on masque **429 / 5xx** or transport errors; POST timeout 15s)
    - `sudo go run ./cmd/client disconnect`
