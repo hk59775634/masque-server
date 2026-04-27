@@ -164,6 +164,8 @@ These are safe skeletons. Customize the service restart section for your product
   - `./scripts/staging/smoke-test.sh`
 - Full check (smoke + alert pipeline + optional k6 + report):
   - `./scripts/staging/full-check.sh`
+- Phase 2b kernel-forward checks (capabilities + metrics + rules):
+  - `RUN_PHASE2B_KERNEL=1 ./scripts/staging/full-check.sh`
 - k6 load test (Docker-based):
   - `export DEVICE_TOKEN="<activated_device_token>"`
   - `export FINGERPRINT="<device_fingerprint>"`
@@ -177,4 +179,10 @@ Optional load variables:
 
 `full-check.sh` options:
 - `RUN_K6=1` enable load test inside full check
+- `RUN_PHASE2B_KERNEL=1` validate CONNECT-IP kernel-forward/shared/NAT capabilities + metrics + alerts
 - `CONTROL_PLANE_URL`, `MASQUE_SERVER_URL`, `PROMETHEUS_URL`, `ALERTMANAGER_URL`
+
+GitHub Actions staging gate:
+- Open `CI` workflow via `workflow_dispatch`
+- Set `run_phase2b_kernel=true`, then provide staging URLs (`control_plane_url`, `masque_server_url`, `prometheus_url`, `alertmanager_url`, optional `loki_url`/`grafana_url`)
+- The job `phase2b-kernel-staging` runs `scripts/staging/full-check.sh` with `RUN_PHASE2B_KERNEL=1`

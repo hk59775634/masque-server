@@ -136,3 +136,16 @@ sudo go run ./cmd/client connect-ip-tun [-masque-server URL] [-connect-ip-udp ho
 - 发送测试告警：`scripts/alerts/send-test-alert.sh` 支持 `--alertname/--severity/--summary/--description/--runbook-url`；例如：
   - `./scripts/alerts/send-test-alert.sh --alertname MasqueConnectIPTunLinkUpFailures --severity warning`
   - `./scripts/alerts/send-test-alert.sh --dry-run --alertname MasqueConnectIPTunOpenEchoFallback`（仅预览 JSON，不发送）
+
+## Phase 2b 内核转发验收脚本
+
+- 脚本：`scripts/staging/phase2b-kernel-check.sh`
+- 默认检查：
+  - `GET /v1/masque/capabilities` 中 `tun_linux_per_session/tun_linux_managed_nat/tun_linux_shared`
+  - `GET /metrics` 中共享 TUN/托管 NAT 关键指标名
+  - Prometheus 已加载相关告警规则
+- 集成到 full-check：`RUN_PHASE2B_KERNEL=1 ./scripts/staging/full-check.sh`
+- GitHub Actions 手动门禁：
+  - 触发 `CI` 的 `workflow_dispatch`
+  - 设置 `run_phase2b_kernel=true`，并填写 staging 的 `control_plane_url/masque_server_url/prometheus_url/alertmanager_url`（可选 `loki_url/grafana_url`）
+  - 会执行 `phase2b-kernel-staging` 任务，内部调用 `full-check.sh` 并开启 `RUN_PHASE2B_KERNEL=1`

@@ -6,7 +6,11 @@ CONTROL_PLANE_URL="${CONTROL_PLANE_URL:-https://www.afbuyers.com}"
 MASQUE_SERVER_URL="${MASQUE_SERVER_URL:-http://127.0.0.1:8443}"
 PROMETHEUS_URL="${PROMETHEUS_URL:-http://127.0.0.1:9090}"
 ALERTMANAGER_URL="${ALERTMANAGER_URL:-http://127.0.0.1:9093}"
+LOKI_URL="${LOKI_URL:-http://127.0.0.1:3100}"
+SKIP_LOKI="${SKIP_LOKI:-0}"
+GRAFANA_URL="${GRAFANA_URL:-http://127.0.0.1:3000}"
 RUN_K6="${RUN_K6:-0}"
+RUN_PHASE2B_KERNEL="${RUN_PHASE2B_KERNEL:-0}"
 
 STAMP="$(date +%Y%m%d-%H%M%S)"
 REPORT_DIR="${ROOT_DIR}/scripts/staging/reports"
@@ -24,7 +28,10 @@ echo "- control_plane: ${CONTROL_PLANE_URL}" >>"${REPORT_FILE}"
 echo "- masque_server: ${MASQUE_SERVER_URL}" >>"${REPORT_FILE}"
 echo "- prometheus: ${PROMETHEUS_URL}" >>"${REPORT_FILE}"
 echo "- alertmanager: ${ALERTMANAGER_URL}" >>"${REPORT_FILE}"
+echo "- loki: ${LOKI_URL} (SKIP_LOKI=${SKIP_LOKI})" >>"${REPORT_FILE}"
+echo "- grafana: ${GRAFANA_URL}" >>"${REPORT_FILE}"
 echo "- run_k6: ${RUN_K6}" >>"${REPORT_FILE}"
+echo "- run_phase2b_kernel: ${RUN_PHASE2B_KERNEL}" >>"${REPORT_FILE}"
 echo "" >>"${REPORT_FILE}"
 echo "## Checks" >>"${REPORT_FILE}"
 
@@ -56,6 +63,19 @@ if curl -fsS "${PROMETHEUS_URL}/api/v1/rules" | python3 -c 'import json,sys; d=j
   pass "prometheus alert rules loaded"
 else
   fail "prometheus alert rules missing"
+fi
+
+if [[ "${SKIP_LOKI}" == "1" ]]; then
+  info "loki /ready skipped (SKIP_LOKI=1)"
+else
+  code="$(curl -sS -o /dev/null -w "%{http_code}" "${LOKI_URL}/ready" || echo 000)"
+  if [[ "${code}" == "200" ]]; then
+    pass "loki /ready"
+  elif [[ "${code}" == "503" ]]; then
+    info "loki /ready -> 503 (not ready yet; common right after compose up)"
+  else
+    fail "loki /ready unexpected HTTP ${code}"
+  fi
 fi
 
 if "${ROOT_DIR}/scripts/alerts/send-test-alert.sh" >/dev/null 2>&1; then
@@ -90,10 +110,25 @@ else
   info "k6 skipped (set RUN_K6=1 to enable)"
 fi
 
+if [[ "${RUN_PHASE2B_KERNEL}" == "1" ]]; then
+  info "running phase2b kernel-forward checks"
+  if "${ROOT_DIR}/scripts/staging/phase2b-kernel-check.sh" >>"${REPORT_FILE}" 2>&1; then
+    pass "phase2b-kernel-check.sh"
+  else
+    fail "phase2b-kernel-check.sh"
+  fi
+else
+  info "phase2b kernel checks skipped (set RUN_PHASE2B_KERNEL=1 to enable)"
+fi
+
 echo "" >>"${REPORT_FILE}"
 echo "## Quick Queries" >>"${REPORT_FILE}"
 echo "- ${PROMETHEUS_URL}/graph?g0.expr=rate(masque_connect_requests_total%5B5m%5D)&g0.tab=0" >>"${REPORT_FILE}"
 echo "- ${PROMETHEUS_URL}/graph?g0.expr=rate(masque_connect_failures_total%5B5m%5D)&g0.tab=0" >>"${REPORT_FILE}"
+echo "- ${PROMETHEUS_URL}/graph?g0.expr=histogram_quantile(0.95%2Csum(rate(masque_authorize_latency_seconds_bucket%5B5m%5D))by(le))&g0.tab=0" >>"${REPORT_FILE}"
 echo "- ${ALERTMANAGER_URL}/#/alerts" >>"${REPORT_FILE}"
+echo "- ${ALERTMANAGER_URL}/#/silences" >>"${REPORT_FILE}"
+echo "- ${LOKI_URL}/ready" >>"${REPORT_FILE}"
+echo "- ${GRAFANA_URL}/d/afbuyers-loki-cheatsheet/loki-logql-cheatsheet" >>"${REPORT_FILE}"
 
 echo "[full-check] report generated: ${REPORT_FILE}"

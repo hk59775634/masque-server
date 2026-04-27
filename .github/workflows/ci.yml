@@ -6,6 +6,46 @@ on:
     branches:
       - main
       - master
+  workflow_dispatch:
+    inputs:
+      run_phase2b_kernel:
+        description: "Run Phase 2b kernel-forward staging gate"
+        required: true
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+      control_plane_url:
+        description: "Staging control-plane base URL"
+        required: false
+        default: "https://www.afbuyers.com"
+        type: string
+      masque_server_url:
+        description: "Staging masque-server base URL"
+        required: false
+        default: "http://127.0.0.1:8443"
+        type: string
+      prometheus_url:
+        description: "Staging Prometheus base URL"
+        required: false
+        default: "http://127.0.0.1:9090"
+        type: string
+      alertmanager_url:
+        description: "Staging Alertmanager base URL"
+        required: false
+        default: "http://127.0.0.1:9093"
+        type: string
+      loki_url:
+        description: "Staging Loki base URL"
+        required: false
+        default: "http://127.0.0.1:3100"
+        type: string
+      grafana_url:
+        description: "Staging Grafana base URL"
+        required: false
+        default: "http://127.0.0.1:3000"
+        type: string
 
 jobs:
   control-plane:
@@ -65,3 +105,34 @@ jobs:
           go build -trimpath -ldflags "${GO_LDFLAGS}" -o "${OUT}" "${PKG}"
           echo "--- ${OUT} version ---"
           "${OUT}" version
+
+  docker-e2e-client:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Docker Compose client E2E (activate + connect -dry-run)
+        run: |
+          set -euo pipefail
+          docker compose -f docker/e2e/docker-compose.yml up --build --abort-on-container-exit --remove-orphans
+          docker compose -f docker/e2e/docker-compose.yml down -v
+
+  phase2b-kernel-staging:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_phase2b_kernel == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run full-check with Phase 2b kernel-forward gate
+        env:
+          CONTROL_PLANE_URL: ${{ inputs.control_plane_url }}
+          MASQUE_SERVER_URL: ${{ inputs.masque_server_url }}
+          PROMETHEUS_URL: ${{ inputs.prometheus_url }}
+          ALERTMANAGER_URL: ${{ inputs.alertmanager_url }}
+          LOKI_URL: ${{ inputs.loki_url }}
+          GRAFANA_URL: ${{ inputs.grafana_url }}
+          RUN_PHASE2B_KERNEL: "1"
+          RUN_K6: "0"
+          SKIP_LOKI: "0"
+        run: |
+          set -euo pipefail
+          chmod +x scripts/staging/full-check.sh scripts/staging/phase2b-kernel-check.sh
+          ./scripts/staging/full-check.sh
