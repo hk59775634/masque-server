@@ -114,6 +114,7 @@ Alert rules included:
 2. Submit a manual alert:
    - `./scripts/alerts/send-test-alert.sh`
    - `./scripts/alerts/send-test-alert.sh --alertname MasqueConnectIPTunLinkUpFailures --severity warning` (exercise alert-specific runbook + suggestions)
+   - `./scripts/alerts/send-test-alert.sh --dry-run --alertname MasqueConnectIPTunOpenEchoFallback` (preview JSON payload without POST)
 3. Confirm delivery in receiver output logs.
    - The mock receiver prints an Alertmanager summary block (status, grouped alerts, `runbook_url`) and per-alert suggested next steps for common CONNECT-IP/TUN alerts.
 

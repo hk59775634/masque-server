@@ -12,6 +12,7 @@ NOW="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 ENDS="$(date -u -d '+10 minutes' +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date -u -v+10M +"%Y-%m-%dT%H:%M:%SZ")"
 RUN_ID="$(date +%s)"
 PAYLOAD_FILE="/tmp/afbuyers-test-alert.json"
+DRY_RUN=0
 
 usage() {
   cat <<'EOF'
@@ -25,12 +26,14 @@ Options:
       --summary TEXT           annotation summary
       --description TEXT       annotation description
       --runbook-url URL        annotation runbook_url (default: inferred for known alerts)
+      --dry-run                print payload JSON and skip POST
   -h, --help                   show this help
 
 Examples:
   ./scripts/alerts/send-test-alert.sh
   ./scripts/alerts/send-test-alert.sh -a MasqueConnectIPTunLinkUpFailures -s warning
   ./scripts/alerts/send-test-alert.sh --runbook-url https://example/runbook
+  ./scripts/alerts/send-test-alert.sh --dry-run -a MasqueConnectIPTunOpenEchoFallback
 EOF
 }
 
@@ -50,6 +53,8 @@ while (($# > 0)); do
       DESCRIPTION="${2:-}"; shift 2 ;;
     --runbook-url)
       RUNBOOK_URL="${2:-}"; shift 2 ;;
+    --dry-run)
+      DRY_RUN=1; shift ;;
     -h|--help)
       usage; exit 0 ;;
     *)
@@ -106,13 +111,20 @@ with open(os.environ["PAYLOAD_FILE"], "w", encoding="utf-8") as f:
     json.dump(payload, f, ensure_ascii=False, indent=2)
 PY
 
-curl -sS -X POST \
-  -H "Content-Type: application/json" \
-  --data @"${PAYLOAD_FILE}" \
-  "${ALERTMANAGER_URL}/api/v2/alerts"
+if [[ "${DRY_RUN}" -eq 1 ]]; then
+  echo "[alert] dry-run payload (${PAYLOAD_FILE}):"
+  cat "${PAYLOAD_FILE}"
+  echo
+  echo "[alert] dry-run only; skipped POST to ${ALERTMANAGER_URL}"
+else
+  curl -sS -X POST \
+    -H "Content-Type: application/json" \
+    --data @"${PAYLOAD_FILE}" \
+    "${ALERTMANAGER_URL}/api/v2/alerts"
 
-echo
-echo "[alert] submitted alertname=${ALERTNAME} severity=${SEVERITY} to ${ALERTMANAGER_URL}"
-if [[ -n "${RUNBOOK_URL}" ]]; then
-  echo "[alert] runbook_url=${RUNBOOK_URL}"
+  echo
+  echo "[alert] submitted alertname=${ALERTNAME} severity=${SEVERITY} to ${ALERTMANAGER_URL}"
+  if [[ -n "${RUNBOOK_URL}" ]]; then
+    echo "[alert] runbook_url=${RUNBOOK_URL}"
+  fi
 fi

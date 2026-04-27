@@ -135,3 +135,4 @@ sudo go run ./cmd/client connect-ip-tun [-masque-server URL] [-connect-ip-udp ho
   - `commands`（可选）：`- ` 开头的命令模板列表（mock receiver 会单独打印，方便复制执行）
 - 发送测试告警：`scripts/alerts/send-test-alert.sh` 支持 `--alertname/--severity/--summary/--description/--runbook-url`；例如：
   - `./scripts/alerts/send-test-alert.sh --alertname MasqueConnectIPTunLinkUpFailures --severity warning`
+  - `./scripts/alerts/send-test-alert.sh --dry-run --alertname MasqueConnectIPTunOpenEchoFallback`（仅预览 JSON，不发送）
