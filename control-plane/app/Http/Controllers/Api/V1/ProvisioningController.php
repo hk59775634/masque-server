@@ -2,21 +2,25 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Http\Controllers\Controller;
 use App\Models\ActivationCode;
 use App\Models\AuditLog;
 use App\Models\Device;
 use App\Models\User;
-use App\Http\Controllers\Controller;
+use Dedoc\Scramble\Attributes\Group;
+use Dedoc\Scramble\Attributes\HeaderParameter;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 
+#[Group('API v1', weight: 0)]
 class ProvisioningController extends Controller
 {
     private const TOKEN_TTL_HOURS = 12;
 
+    #[HeaderParameter('Idempotency-Key', 'Optional UUID; same key + identical body replays prior success; mismatch returns 409.', required: false, type: 'string')]
     public function createUser(Request $request): JsonResponse
     {
         $validated = $request->validate([
@@ -35,6 +39,7 @@ class ProvisioningController extends Controller
         return response()->json(['user' => $user], 201);
     }
 
+    #[HeaderParameter('Idempotency-Key', 'Optional UUID; same key + identical body replays prior success; mismatch returns 409.', required: false, type: 'string')]
     public function issueActivationCode(Request $request): JsonResponse
     {
         $validated = $request->validate([
@@ -63,6 +68,7 @@ class ProvisioningController extends Controller
         ], 201);
     }
 
+    #[HeaderParameter('Idempotency-Key', 'Optional UUID; same key + identical body replays prior success; mismatch returns 409.', required: false, type: 'string')]
     public function activateDevice(Request $request): JsonResponse
     {
         $validated = $request->validate([
@@ -82,7 +88,7 @@ class ProvisioningController extends Controller
             fn (ActivationCode $item): bool => Hash::check($validated['activation_code'], $item->code_hash)
         );
 
-        if (!$activation) {
+        if (! $activation) {
             return response()->json(['message' => 'Invalid or expired activation code'], 422);
         }
 
@@ -108,7 +114,7 @@ class ProvisioningController extends Controller
             'device_id' => $device->id,
             'device_token' => $jwtToken,
             'config' => [
-                'server_addr' => config('app.url', 'http://127.0.0.1:8443'),
+                'server_addr' => config('services.masque.server_url'),
                 'sni' => 'masque.afbuyers.local',
                 'alpn' => 'h3',
                 'dns' => ['1.1.1.1', '8.8.8.8'],
@@ -118,10 +124,11 @@ class ProvisioningController extends Controller
         ]);
     }
 
+    #[HeaderParameter('Authorization', 'Bearer `<device_token>` issued by `POST /api/v1/activate`.', required: true, type: 'string')]
     public function fetchDeviceSelf(Request $request): JsonResponse
     {
         $device = $this->deviceFromBearer($request);
-        if (!$device) {
+        if (! $device) {
             return response()->json(['message' => 'Unauthorized'], 401);
         }
 
@@ -148,10 +155,11 @@ class ProvisioningController extends Controller
         ]);
     }
 
+    #[HeaderParameter('Authorization', 'Bearer `<device_token>` issued by `POST /api/v1/activate`.', required: true, type: 'string')]
     public function fetchConfig(Request $request): JsonResponse
     {
         $device = $this->deviceFromBearer($request);
-        if (!$device) {
+        if (! $device) {
             return response()->json(['message' => 'Unauthorized'], 401);
         }
 
@@ -166,7 +174,7 @@ class ProvisioningController extends Controller
                 'status' => $device->status,
             ],
             'config' => [
-                'server_addr' => config('app.url', 'http://127.0.0.1:8443'),
+                'server_addr' => config('services.masque.server_url'),
                 'sni' => 'masque.afbuyers.local',
                 'alpn' => 'h3',
                 'dns' => $policy['dns'],
@@ -178,6 +186,7 @@ class ProvisioningController extends Controller
         ]);
     }
 
+    #[HeaderParameter('Idempotency-Key', 'Optional UUID; same key + identical body replays prior success; mismatch returns 409.', required: false, type: 'string')]
     public function authorizeSession(Request $request): JsonResponse
     {
         $validated = $request->validate([
@@ -195,10 +204,11 @@ class ProvisioningController extends Controller
             })
             ->first();
 
-        if (!$claims || !$device || ($claims['fingerprint'] ?? '') !== $validated['fingerprint']) {
+        if (! $claims || ! $device || ($claims['fingerprint'] ?? '') !== $validated['fingerprint']) {
             $this->audit('server.auth_failed', 'Server authorization failed', $request, null, null, [
                 'fingerprint' => $validated['fingerprint'],
             ]);
+
             return response()->json(['allowed' => false], 401);
         }
 
@@ -216,6 +226,7 @@ class ProvisioningController extends Controller
         ]);
     }
 
+    #[HeaderParameter('Idempotency-Key', 'Optional UUID; same key + identical body replays prior success; mismatch returns 409.', required: false, type: 'string')]
     public function setUserPolicy(Request $request, User $user): JsonResponse
     {
         $validated = $request->validate([
@@ -235,6 +246,7 @@ class ProvisioningController extends Controller
         return response()->json(['ok' => true]);
     }
 
+    #[HeaderParameter('Idempotency-Key', 'Optional UUID; same key + identical body replays prior success; mismatch returns 409.', required: false, type: 'string')]
     public function setDevicePolicy(Request $request, Device $device): JsonResponse
     {
         $validated = $request->validate([
@@ -317,12 +329,12 @@ class ProvisioningController extends Controller
 
         [$h, $p, $s] = $parts;
         $expected = $this->base64UrlEncode(hash_hmac('sha256', "{$h}.{$p}", (string) config('app.key'), true));
-        if (!hash_equals($expected, $s)) {
+        if (! hash_equals($expected, $s)) {
             return null;
         }
 
         $payload = json_decode($this->base64UrlDecode($p), true);
-        if (!is_array($payload)) {
+        if (! is_array($payload)) {
             return null;
         }
 

@@ -1,0 +1,14 @@
+FROM golang:1.24-bookworm AS build
+ENV GOTOOLCHAIN=auto
+WORKDIR /src
+COPY masque-server/go.mod masque-server/go.sum ./
+RUN go mod download
+COPY masque-server/ ./
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /masque-server ./cmd/server
+
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl \
+	&& rm -rf /var/lib/apt/lists/*
+COPY --from=build /masque-server /usr/local/bin/masque-server
+EXPOSE 8443
+CMD ["masque-server"]

@@ -53,4 +53,32 @@ class ApiDeviceSelfTest extends TestCase
 
         $this->assertArrayNotHasKey('api_token_hash', $self->json('device') ?? []);
     }
+
+    public function test_activate_returns_masque_server_url_from_services_config(): void
+    {
+        config(['services.masque.server_url' => 'http://masque.test:9443']);
+
+        $this->postJson('/api/v1/users', [
+            'name' => 'Masque URL User',
+            'email' => 'masqueurl@example.com',
+            'password' => 'password123',
+        ])->assertStatus(201);
+
+        $user = User::query()->where('email', 'masqueurl@example.com')->firstOrFail();
+
+        $codeResp = $this->postJson('/api/v1/devices/activation-code', [
+            'user_id' => $user->id,
+            'device_name' => 'm-url',
+            'fingerprint' => 'fp-masque-url',
+        ]);
+        $codeResp->assertStatus(201);
+        $rawCode = $codeResp->json('activation_code');
+
+        $act = $this->postJson('/api/v1/activate', [
+            'activation_code' => $rawCode,
+            'fingerprint' => 'fp-masque-url',
+        ]);
+        $act->assertOk()
+            ->assertJsonPath('config.server_addr', 'http://masque.test:9443');
+    }
 }

@@ -1,0 +1,46 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "gridPos": { "h": 28, "w": 24, "x": 0, "y": 0 },
+      "id": 1,
+      "options": {
+        "code": { "language": "markdown", "showLineNumbers": false, "showMiniMap": false },
+        "content": "# Loki / LogQL 备忘（AFBuyers）\n\n在 **Grafana → Explore → Loki** 中试用下列片段；时间范围建议 **Last 15m** 或 **Last 1h**。\n\n---\n\n## 标签与流\n\n```logql\n{job=\"masque-server\"}\n```\n\n```logql\n{job=\"masque-server\", level=\"error\"}\n```\n\n---\n\n## 行过滤（管道）\n\n```logql\n{job=\"masque-server\"} |= \"connect\"\n```\n\n```logql\n{job=\"masque-server\"} != \"healthz\"\n```\n\n\n```logql\n{job=\"masque-server\"} |~ \"error|panic\"\n```\n\n---\n\n## JSON / key=value 日志\n\n```logql\n{job=\"app\"} | json | status_code >= 500\n```\n\n```logql\n{job=\"app\"} | logfmt | level=\"error\"\n```\n\n---\n\n## 速率与聚合（指标化）\n\n```logql\nsum(count_over_time({job=\"masque-server\"}[1m]))\n```\n\n```logql\nsum by (level) (count_over_time({job=\"masque-server\"}[5m]))\n```\n\n---\n\n## CONNECT-IP 路由推送排障（invalid_cidr / acl_denied / write_error）\n\n```logql\n{job=\"masque-server\"} |= \"connect-ip stub: CONNECT_IP_ROUTE_ADV_CIDR invalid\"\n```\n\n```logql\n{job=\"masque-server\"} |= \"connect-ip stub: skip route push\" |= \"outside device ACL\"\n```\n\n```logql\n{job=\"masque-server\"} |= \"connect-ip stub: route push write\"\n```\n\n```logql\nsum(count_over_time({job=\"masque-server\"} |= \"connect-ip stub: CONNECT_IP_ROUTE_ADV_CIDR invalid\" [5m]))\n```\n\n```logql\nsum(count_over_time({job=\"masque-server\"} |= \"connect-ip stub: skip route push\" |= \"outside device ACL\" [5m]))\n```\n\n```logql\nsum(count_over_time({job=\"masque-server\"} |= \"connect-ip stub: route push write\" [5m]))\n```\n\n---\n\n## 排查提示\n\n- Loki **未就绪** 时 `/ready` 可能返回 **503**，Compose 刚启动属正常。\n- 更完整的说明见仓库：`docs/runbooks/loki-logql-cheatsheet.md`。",
+        "mode": "markdown"
+      },
+      "title": "",
+      "transparent": true,
+      "type": "text"
+    }
+  ],
+  "refresh": "",
+  "schemaVersion": 39,
+  "style": "dark",
+  "tags": ["loki", "afbuyers", "cheatsheet"],
+  "templating": { "list": [] },
+  "time": { "from": "now-1h", "to": "now" },
+  "timepicker": {},
+  "timezone": "",
+  "title": "Loki LogQL cheatsheet",
+  "uid": "afbuyers-loki-cheatsheet",
+  "version": 1,
+  "weekStart": ""
+}

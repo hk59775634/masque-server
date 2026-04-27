@@ -1,0 +1,16 @@
+FROM golang:1.24-bookworm AS build
+ENV GOTOOLCHAIN=auto
+WORKDIR /src
+COPY linux-client/go.mod ./
+RUN go mod download || true
+COPY linux-client/ ./
+RUN go mod tidy && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /masque-client ./cmd/client
+
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends curl jq ca-certificates \
+	&& rm -rf /var/lib/apt/lists/*
+COPY --from=build /masque-client /usr/local/bin/masque-client
+COPY scripts/dev/e2e-client-connect-dry-run.sh /opt/e2e-client-connect-dry-run.sh
+COPY docker/e2e/run-e2e.sh /run-e2e.sh
+RUN chmod +x /opt/e2e-client-connect-dry-run.sh /run-e2e.sh
+ENTRYPOINT ["/run-e2e.sh"]

@@ -75,6 +75,8 @@
             <a class="btn" href="{{ route('admin.index', ['tab' => 'users']) }}">用户策略</a>
             <a class="btn" href="{{ route('admin.index', ['tab' => 'devices']) }}">设备策略</a>
             <a class="btn" href="{{ route('admin.audits', ['tab' => 'audits']) }}">操作审计</a>
+            <a class="btn" href="{{ route('admin.two-factor.setup') }}">两步验证</a>
+            <a class="btn" href="{{ url('/docs/api') }}" target="_blank" rel="noopener noreferrer">API 文档</a>
             <form method="POST" action="{{ route('logout') }}">@csrf <button class="btn" type="submit">退出登录</button></form>
         </div>
     </div>
@@ -93,14 +95,67 @@
     @php
         $selectedUser = $users->firstWhere('id', $selectedUserId) ?? $users->first();
         $selectedDevice = $devices->firstWhere('id', $selectedDeviceId) ?? $devices->first();
-        $tab = in_array($tab, ['users','devices','audits'], true) ? $tab : 'users';
+        $tab = in_array($tab, ['overview', 'users', 'devices', 'audits'], true) ? $tab : 'users';
     @endphp
 
     <div class="tabs" style="margin-bottom:12px;">
+        <a class="tab {{ $tab === 'overview' ? 'active' : '' }}" href="{{ route('admin.index', ['tab' => 'overview']) }}">运营概览</a>
         <a class="tab {{ $tab === 'users' ? 'active' : '' }}" href="{{ route('admin.index', ['tab' => 'users', 'user_id' => $selectedUser?->id]) }}">用户策略</a>
         <a class="tab {{ $tab === 'devices' ? 'active' : '' }}" href="{{ route('admin.index', ['tab' => 'devices', 'device_id' => $selectedDevice?->id]) }}">设备策略与 ACL</a>
         <a class="tab {{ $tab === 'audits' ? 'active' : '' }}" href="{{ route('admin.audits', ['tab' => 'audits']) }}">操作审计</a>
     </div>
+    @if($tab === 'overview')
+        <div class="card" style="margin-bottom:12px;">
+            <h2>控制面与设备</h2>
+            <div class="filter-grid" style="grid-template-columns: repeat(4, minmax(120px, 1fr));">
+                <div class="subcard"><strong>用户总数</strong><div>{{ $opsOverview['db']['users_total'] ?? 0 }}</div></div>
+                <div class="subcard"><strong>设备总数</strong><div>{{ $opsOverview['db']['devices_total'] ?? 0 }}</div></div>
+                <div class="subcard"><strong>24h 内活跃设备</strong><div>{{ $opsOverview['db']['devices_seen_24h'] ?? 0 }}</div></div>
+                <div class="subcard"><strong>7 日内活跃设备</strong><div>{{ $opsOverview['db']['devices_seen_7d'] ?? 0 }}</div></div>
+            </div>
+        </div>
+        <div class="card" style="margin-bottom:12px;">
+            <h2>MASQUE 服务端（Prometheus）</h2>
+            @php
+                $prom = $opsOverview['prometheus'] ?? ['reachable' => false, 'error' => '无数据', 'metrics' => []];
+                $m = $prom['metrics'] ?? [];
+                $req = $m['connect_requests'] ?? null;
+                $succ = $m['connect_success'] ?? null;
+                $fail = $m['connect_failures_sum'] ?? null;
+                $hz = $m['healthz_requests'] ?? null;
+                $up = $m['target_up'] ?? null;
+                $rate = ($req !== null && $req > 0 && $fail !== null) ? round(100 * $fail / $req, 2) : null;
+            @endphp
+            @if(!($prom['reachable'] ?? false))
+                <div class="muted">Prometheus 不可用：{{ $prom['error'] ?? '未知原因' }}。可在 <code>.env</code> 设置 <code>PROMETHEUS_URL</code>，并确保抓取任务 <code>masque-server</code> 已上线。</div>
+            @else
+                <div class="filter-grid" style="grid-template-columns: repeat(3, minmax(140px, 1fr));">
+                    <div class="subcard"><strong>抓取目标 up</strong><div>{{ $up === null ? '—' : (int) $up }}</div></div>
+                    <div class="subcard"><strong>connect 请求累计</strong><div>{{ $req === null ? '—' : (int) $req }}</div></div>
+                    <div class="subcard"><strong>connect 成功累计</strong><div>{{ $succ === null ? '—' : (int) $succ }}</div></div>
+                    <div class="subcard"><strong>connect 失败累计</strong><div>{{ $fail === null ? '—' : (int) $fail }}</div></div>
+                    <div class="subcard"><strong>失败占比（失败/请求）</strong><div>{{ $rate === null ? '—' : $rate.'%' }}</div></div>
+                    <div class="subcard"><strong>healthz 命中累计</strong><div>{{ $hz === null ? '—' : (int) $hz }}</div></div>
+                </div>
+            @endif
+            <p class="muted" style="margin-top:12px;margin-bottom:0;">数据面能力占位：<a href="{{ url('/docs/api') }}" target="_blank" rel="noopener noreferrer">OpenAPI</a> 与节点 <code>GET http://&lt;masque&gt;:8443/v1/masque/capabilities</code>（需直连节点）。</p>
+        </div>
+        <div class="card" style="margin-bottom:12px;">
+            <h2>观测栈（Docker Compose）</h2>
+            <p class="muted" style="margin-top:0;">默认对应仓库 <code>ops/observability/docker-compose.yml</code> 映射端口；Grafana 初始账号密码见该文件中的环境变量（勿暴露到公网）。生产环境请用下方 URL 环境变量改为内网域名或反代地址。</p>
+            <div class="actions" style="margin-top:8px;">
+                <a class="btn" href="{{ $opsOverview['ui']['grafana'] ?? '#' }}" target="_blank" rel="noopener noreferrer">Grafana</a>
+                <a class="btn" href="{{ $opsOverview['ui']['grafana_explore'] ?: ($opsOverview['ui']['grafana'] ?? '#') }}" target="_blank" rel="noopener noreferrer">Grafana Explore</a>
+                <a class="btn" href="{{ $opsOverview['ui']['prometheus'] ?? '#' }}" target="_blank" rel="noopener noreferrer">Prometheus</a>
+                <a class="btn" href="{{ $opsOverview['ui']['alertmanager'] ?? '#' }}" target="_blank" rel="noopener noreferrer">Alertmanager</a>
+                <a class="btn" href="{{ $opsOverview['ui']['alertmanager_silences'] ?? '#' }}" target="_blank" rel="noopener noreferrer">静默列表</a>
+                <a class="btn" href="{{ $opsOverview['ui']['alertmanager_silence_new'] ?? '#' }}" target="_blank" rel="noopener noreferrer">新建静默</a>
+                <a class="btn" href="{{ $opsOverview['ui']['loki'] ?? '#' }}" target="_blank" rel="noopener noreferrer">Loki</a>
+                <a class="btn" href="{{ $opsOverview['ui']['loki_ready'] ?? '#' }}" target="_blank" rel="noopener noreferrer">Loki /ready</a>
+                <a class="btn" href="{{ $opsOverview['ui']['grafana_loki_cheatsheet'] ?: '#' }}" target="_blank" rel="noopener noreferrer">Loki 备忘面板</a>
+            </div>
+        </div>
+    @endif
     <div class="card" style="margin-bottom:12px;">
         <h2>高危操作一次性确认码（5分钟有效，单次使用）</h2>
         <form method="POST" action="{{ route('admin.operation-token') }}" class="actions">

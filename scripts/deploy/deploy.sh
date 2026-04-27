@@ -37,8 +37,26 @@ elif [[ "${BUILD_GO}" == "1" ]]; then
 	echo "[deploy] BUILD_GO=1 but go not in PATH; skipped Go compile (install Go or set BUILD_GO=0)"
 fi
 
+PREV_RELEASE=""
+if [[ -L "${CURRENT_LINK}" ]]; then
+	PREV_RELEASE="$(readlink -f "${CURRENT_LINK}")"
+fi
+
 echo "[deploy] switching current symlink..."
 ln -sfn "${NEW_RELEASE}" "${CURRENT_LINK}"
+
+# Do not replace production SQLite with the (often empty) file from the git checkout.
+if [[ -n "${PREV_RELEASE}" && -f "${PREV_RELEASE}/control-plane/database/database.sqlite" ]]; then
+	echo "[deploy] preserving control-plane SQLite from previous release"
+	cp -a "${PREV_RELEASE}/control-plane/database/database.sqlite" "${NEW_RELEASE}/control-plane/database/database.sqlite"
+fi
+
+# Laravel (PHP-FPM www-data) must write SQLite, cache, sessions, logs.
+if [[ -d "${CURRENT_LINK}/control-plane" ]]; then
+	echo "[deploy] fixing control-plane writable dirs for www-data..."
+	chown -R www-data:www-data "${CURRENT_LINK}/control-plane/storage" "${CURRENT_LINK}/control-plane/bootstrap/cache" "${CURRENT_LINK}/control-plane/database" 2>/dev/null || true
+	chmod 775 "${CURRENT_LINK}/control-plane/database" 2>/dev/null || true
+fi
 
 # shellcheck source=systemctl-restart-lib.sh
 . "${ROOT_DIR}/scripts/deploy/systemctl-restart-lib.sh"

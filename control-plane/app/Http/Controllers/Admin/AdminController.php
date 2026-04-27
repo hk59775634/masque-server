@@ -2,11 +2,12 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Http\Controllers\Controller;
 use App\Models\AdminOperationToken;
 use App\Models\AuditLog;
 use App\Models\Device;
 use App\Models\User;
-use App\Http\Controllers\Controller;
+use App\Services\MasquePrometheusMetrics;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
@@ -50,6 +51,32 @@ class AdminController extends Controller
         $lastArchiveRun = $archiveRuns->first();
         $archiveJobRunning = Cache::has('admin:audit-archive:running');
 
+        $grafana = rtrim((string) config('services.observability.grafana_url'), '/');
+        $prometheusUi = rtrim((string) config('services.observability.prometheus_ui_url'), '/');
+        $alertmanager = rtrim((string) config('services.observability.alertmanager_url'), '/');
+        $loki = rtrim((string) config('services.observability.loki_url'), '/');
+
+        $opsOverview = [
+            'db' => [
+                'users_total' => User::query()->count(),
+                'devices_total' => Device::query()->count(),
+                'devices_seen_24h' => Device::query()->where('last_seen_at', '>=', now()->subDay())->count(),
+                'devices_seen_7d' => Device::query()->where('last_seen_at', '>=', now()->subDays(7))->count(),
+            ],
+            'prometheus' => app(MasquePrometheusMetrics::class)->snapshot(),
+            'ui' => [
+                'grafana' => $grafana,
+                'grafana_explore' => $grafana !== '' ? $grafana.'/explore' : '',
+                'prometheus' => $prometheusUi,
+                'alertmanager' => $alertmanager,
+                'alertmanager_silences' => $alertmanager !== '' ? $alertmanager.'/#/silences' : '',
+                'alertmanager_silence_new' => $alertmanager !== '' ? $alertmanager.'/#/silences/new' : '',
+                'loki' => $loki,
+                'loki_ready' => $loki !== '' ? $loki.'/ready' : '',
+                'grafana_loki_cheatsheet' => $grafana !== '' ? $grafana.'/d/afbuyers-loki-cheatsheet/loki-logql-cheatsheet' : '',
+            ],
+        ];
+
         return view('admin.index', [
             'users' => $users,
             'devices' => $devices,
@@ -65,6 +92,7 @@ class AdminController extends Controller
             'archiveJobRunning' => $archiveJobRunning,
             'operationToken' => (string) $request->session()->get('operation_token', ''),
             'operationTokenExpiresAt' => (string) $request->session()->get('operation_token_expires_at', ''),
+            'opsOverview' => $opsOverview,
         ]);
     }
 

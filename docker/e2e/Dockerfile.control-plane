@@ -1,0 +1,24 @@
+FROM php:8.4-cli-bookworm
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+		git curl unzip libsqlite3-dev libzip-dev \
+	&& docker-php-ext-install -j"$(nproc)" pdo_sqlite zip \
+	&& rm -rf /var/lib/apt/lists/*
+
+COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+
+WORKDIR /app
+COPY control-plane/ /app/
+COPY docker/e2e/entrypoint-control-plane.sh /entrypoint-control-plane.sh
+RUN chmod +x /entrypoint-control-plane.sh
+
+ENV APP_URL=http://control-plane:8000
+ENV MASQUE_SERVER_URL=http://masque:8443
+ENV DB_CONNECTION=sqlite
+ENV DB_DATABASE=/app/database/database.sqlite
+ENV CACHE_STORE=array
+ENV SESSION_DRIVER=array
+ENV QUEUE_CONNECTION=sync
+
+EXPOSE 8000
+ENTRYPOINT ["/entrypoint-control-plane.sh"]

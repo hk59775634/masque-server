@@ -66,6 +66,13 @@ class LoginController extends Controller
             Auth::user()->update(['is_admin' => true]);
         }
 
+        $user = Auth::user();
+        if ($user && $user->is_admin && $user->two_factor_confirmed_at) {
+            return redirect()
+                ->route('admin.two-factor.challenge')
+                ->with('status', '请输入身份验证器中的 6 位验证码。');
+        }
+
         return redirect()->route('dashboard')->with('status', '登录成功。');
     }
 

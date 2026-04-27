@@ -1,0 +1,8 @@
+.git
+**/node_modules
+**/vendor
+**/.env
+**/storage/logs/*
+**/bootstrap/cache/*
+**/database/*.sqlite
+linux-client/.masque-client*.json
