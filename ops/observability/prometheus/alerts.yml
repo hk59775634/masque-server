@@ -95,3 +95,15 @@ groups:
           summary: "CONNECT-IP TUN link-up command failed"
           description: "CONNECT_IP_TUN_LINK_UP is enabled but ip link set up is failing (check ip(8) in PATH and CAP_NET_ADMIN/root)."
           runbook_url: "https://github.com/afbuyers/masque-server/blob/main/docs/runbooks/connect-ip-tun-forward-linux.md"
+
+      - alert: MasqueConnectIPTunManagedNATApplyErrors
+        expr: |
+          sum(rate(masque_connect_ip_tun_managed_nat_apply_total{result="error"}[5m])) > 0
+        for: 10m
+        labels:
+          severity: warning
+          service: masque-server
+        annotations:
+          summary: "CONNECT-IP managed NAT automation apply failed"
+          description: "CONNECT_IP_TUN_MANAGED_NAT is enabled but ip_forward/iptables automation is failing (check CONNECT_IP_TUN_EGRESS_IFACE, iptables availability, and privileges)."
+          runbook_url: "https://github.com/afbuyers/masque-server/blob/main/docs/runbooks/connect-ip-tun-forward-linux.md"

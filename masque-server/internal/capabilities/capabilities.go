@@ -17,6 +17,8 @@ type Params struct {
 	ConnectIPTunKernelForward bool
 	// ConnectIPTunLinkUp: CONNECT_IP_TUN_LINK_UP with TUN forward — server runs ip link set up after each TUN open.
 	ConnectIPTunLinkUp bool
+	// ConnectIPTunManagedNAT: CONNECT_IP_TUN_MANAGED_NAT with TUN forward — server applies minimal ip_forward/iptables automation.
+	ConnectIPTunManagedNAT bool
 }
 
 // Build returns the capabilities document shared by TCP and QUIC listeners.
@@ -42,6 +44,9 @@ func Build(p Params) map[string]any {
 			if p.ConnectIPTunLinkUp {
 				dgNote += " CONNECT_IP_TUN_LINK_UP: ip link set dev <tun> up after each successful TUN open (best-effort)."
 			}
+			if p.ConnectIPTunManagedNAT {
+				dgNote += " CONNECT_IP_TUN_MANAGED_NAT: server applies minimal ip_forward/iptables MASQUERADE automation (requires operator egress interface config)."
+			}
 		}
 		http3dg := map[string]any{
 			"settings": "RFC 9297 HTTP Datagrams negotiated (H3_DATAGRAM); QUIC datagram extension enabled on listener",
@@ -58,6 +63,9 @@ func Build(p Params) map[string]any {
 			http3dg["tun_linux_per_session"] = true
 			if p.ConnectIPTunLinkUp {
 				http3dg["tun_linux_link_up"] = true
+			}
+			if p.ConnectIPTunManagedNAT {
+				http3dg["tun_linux_managed_nat"] = true
 			}
 		}
 		switch {
@@ -89,9 +97,9 @@ func Build(p Params) map[string]any {
 				"note": "masque-server calls the same control-plane /api/v1/server/authorize as TCP routes before 200",
 			},
 			"rfc9484": map[string]any{
-				"decode":          []string{"ADDRESS_ASSIGN (0x01)", "ADDRESS_REQUEST (0x02)", "ROUTE_ADVERTISEMENT (0x03)"},
-				"route_policy":    "each ROUTE_ADVERTISEMENT range must fall entirely inside one device ACL allow.cidr (same rule covers start and end); empty ACL allows all",
-				"outbound_route":  "optional: after 200 the server may write one ROUTE_ADVERTISEMENT when CONNECT_IP_ROUTE_ADV_CIDR is set and the inclusive IPv4 range fits ACL",
+				"decode":         []string{"ADDRESS_ASSIGN (0x01)", "ADDRESS_REQUEST (0x02)", "ROUTE_ADVERTISEMENT (0x03)"},
+				"route_policy":   "each ROUTE_ADVERTISEMENT range must fall entirely inside one device ACL allow.cidr (same rule covers start and end); empty ACL allows all",
+				"outbound_route": "optional: after 200 the server may write one ROUTE_ADVERTISEMENT when CONNECT_IP_ROUTE_ADV_CIDR is set and the inclusive IPv4 range fits ACL",
 				"not_implemented": func() []string {
 					out := []string{"CONNECT-IP TCP or IPv6 datagram relay"}
 					if p.ConnectIPTunKernelForward {
@@ -119,13 +127,14 @@ func Build(p Params) map[string]any {
 				return s + "; " + strings.Join(tail, "; ")
 			}(),
 			"dev": map[string]any{
-				"skip_auth_env":      "CONNECT_IP_SKIP_AUTH or MASQUE_CONNECT_IP_SKIP_AUTH = 1|true|yes|on disables Bearer/Device-Fingerprint (not for production)",
-				"echo_contexts_env":  "CONNECT_IP_STUB_ECHO_CONTEXTS=comma-separated non-zero Context IDs (e.g. 2,4) peels those datagrams for ACL/opaque echo instead of dropping as unknown (development only)",
-				"udp_relay_env":      "CONNECT_IP_UDP_RELAY=1|true|yes|on enables optional IPv4/UDP user-space relay for Context ID 0 datagrams after ACL (not for production without review)",
-				"icmp_relay_env":     "CONNECT_IP_ICMP_RELAY=1|true|yes|on enables optional IPv4 ICMP Echo relay (ping) after ACL; typically requires root or CAP_NET_RAW",
-				"route_adv_push_env": "CONNECT_IP_ROUTE_ADV_CIDR=<ipv4/cidr>: optional; server sends one ROUTE_ADVERTISEMENT after 200 when the inclusive range fits device ACL (same rule as inbound routes)",
-				"tun_forward_env":    "CONNECT_IP_TUN_FORWARD=1|true|yes|on (Linux only): per-session TUN for ACL-allowed IP datagrams; CONNECT_IP_TUN_NAME optional (TUNSETIFF); requires /dev/net/tun (typically root). SNAT (e.g. iptables MASQUERADE) and ip_forward are not applied by masque-server.",
-				"tun_link_up_env":    "CONNECT_IP_TUN_LINK_UP=1|true|yes|on (Linux, requires CONNECT_IP_TUN_FORWARD): after each successful TUN open, run ip link set dev <ifname> up (best-effort log on failure; needs ip(8) in PATH and CAP_NET_ADMIN).",
+				"skip_auth_env":       "CONNECT_IP_SKIP_AUTH or MASQUE_CONNECT_IP_SKIP_AUTH = 1|true|yes|on disables Bearer/Device-Fingerprint (not for production)",
+				"echo_contexts_env":   "CONNECT_IP_STUB_ECHO_CONTEXTS=comma-separated non-zero Context IDs (e.g. 2,4) peels those datagrams for ACL/opaque echo instead of dropping as unknown (development only)",
+				"udp_relay_env":       "CONNECT_IP_UDP_RELAY=1|true|yes|on enables optional IPv4/UDP user-space relay for Context ID 0 datagrams after ACL (not for production without review)",
+				"icmp_relay_env":      "CONNECT_IP_ICMP_RELAY=1|true|yes|on enables optional IPv4 ICMP Echo relay (ping) after ACL; typically requires root or CAP_NET_RAW",
+				"route_adv_push_env":  "CONNECT_IP_ROUTE_ADV_CIDR=<ipv4/cidr>: optional; server sends one ROUTE_ADVERTISEMENT after 200 when the inclusive range fits device ACL (same rule as inbound routes)",
+				"tun_forward_env":     "CONNECT_IP_TUN_FORWARD=1|true|yes|on (Linux only): per-session TUN for ACL-allowed IP datagrams; CONNECT_IP_TUN_NAME optional (TUNSETIFF); requires /dev/net/tun (typically root). SNAT (e.g. iptables MASQUERADE) and ip_forward are not applied by masque-server.",
+				"tun_link_up_env":     "CONNECT_IP_TUN_LINK_UP=1|true|yes|on (Linux, requires CONNECT_IP_TUN_FORWARD): after each successful TUN open, run ip link set dev <ifname> up (best-effort log on failure; needs ip(8) in PATH and CAP_NET_ADMIN).",
+				"tun_managed_nat_env": "CONNECT_IP_TUN_MANAGED_NAT=1|true|yes|on (Linux, requires CONNECT_IP_TUN_FORWARD): apply net.ipv4.ip_forward=1 and iptables FORWARD/MASQUERADE rules. Requires CONNECT_IP_TUN_EGRESS_IFACE; optional CONNECT_IP_TUN_ADDR_CIDR for ip addr replace.",
 			},
 		}
 		if p.ConnectIPRouteAdvertPushCIDR != "" {
@@ -194,6 +203,9 @@ func Build(p Params) map[string]any {
 					}
 					if p.ConnectIPTunKernelForward {
 						n += "; CONNECT_IP_TUN_FORWARD: optional Linux per-session TUN bridge"
+						if p.ConnectIPTunManagedNAT {
+							n += " + minimal managed NAT automation"
+						}
 					}
 					return n
 				}(),

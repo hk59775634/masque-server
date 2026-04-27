@@ -103,4 +103,14 @@ type ListenConfig struct {
 
 	// ConnectIPTunLinkUpFailures, if non-nil, counts failed CONNECT_IP_TUN_LINK_UP attempts (ip not found or command error).
 	ConnectIPTunLinkUpFailures prometheus.Counter
+
+	// ConnectIPTunManagedNAT (Linux): apply host forwarding/NAT automation for CONNECT-IP TUN
+	// (ip_forward=1, optional `ip addr replace`, FORWARD accepts, POSTROUTING MASQUERADE).
+	ConnectIPTunManagedNAT bool
+	// ConnectIPTunEgressInterface is required when ConnectIPTunManagedNAT=true.
+	ConnectIPTunEgressInterface string
+	// ConnectIPTunAddressCIDR optionally assigns an address/prefix to the TUN via `ip addr replace <cidr> dev <if>`.
+	ConnectIPTunAddressCIDR string
+	// ConnectIPTunManagedNATApplyResults counts managed NAT apply outcomes (result=ok|error).
+	ConnectIPTunManagedNATApplyResults *prometheus.CounterVec
 }

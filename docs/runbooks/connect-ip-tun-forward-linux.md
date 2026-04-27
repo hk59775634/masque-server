@@ -4,6 +4,14 @@ masque-server can set **`CONNECT_IP_TUN_FORWARD=1`** so each CONNECT-IP session 
 
 Optional **`CONNECT_IP_TUN_LINK_UP=1`** (with **`CONNECT_IP_TUN_FORWARD`**): after each successful TUN open, masque-server runs **`ip link set dev <ifname> up`** (best-effort; requires **`ip`** on **`PATH`** and usually **`CAP_NET_ADMIN`**). This does not replace full routing/SNAT setup below.
 
+Optional **`CONNECT_IP_TUN_MANAGED_NAT=1`** (with **`CONNECT_IP_TUN_FORWARD`**): masque-server applies minimal host networking automation on each session TUN:
+- `sysctl -w net.ipv4.ip_forward=1`
+- optional `ip addr replace <CONNECT_IP_TUN_ADDR_CIDR> dev <tun>`
+- `iptables` FORWARD accept rules between `<tun>` and **`CONNECT_IP_TUN_EGRESS_IFACE`**
+- `iptables -t nat POSTROUTING -o <egress> -j MASQUERADE`
+
+This is a minimal bootstrap, not a full firewall policy manager. Existing host security controls remain your responsibility.
+
 ## Preconditions
 
 - Linux host, masque-server run with access to **`/dev/net/tun`** (typically **root** or **`CAP_NET_ADMIN`**).
@@ -35,6 +43,7 @@ sudo iptables -t nat -A POSTROUTING -o <wan> -j MASQUERADE
 - **`masque_connect_ip_tun_bridge_active`**: gauge — streams currently in the TUN bridge loop.
 - **`masque_connect_ip_tun_open_echo_fallback_total`**: counter — **`CONNECT_IP_TUN_FORWARD`** was on but **`openConnectIPTunForward`** failed (permission, missing `/dev/net/tun`, etc.); the stream used **echo** instead.
 - **`masque_connect_ip_tun_link_up_failures_total`**: counter — **`CONNECT_IP_TUN_LINK_UP`** attempted `ip link set up` but failed (`ip` missing in `PATH`, insufficient capabilities, invalid interface state/name, etc.).
+- **`masque_connect_ip_tun_managed_nat_apply_total{result}`**: countervec — managed NAT apply outcomes (`ok` or `error`).
 
 Grafana **`ops/observability/grafana/dashboards/masque-overview.json`** includes panels for both series.
 
@@ -43,6 +52,7 @@ Grafana **`ops/observability/grafana/dashboards/masque-overview.json`** includes
 Prometheus rules in `ops/observability/prometheus/alerts.yml`:
 - **`MasqueConnectIPTunOpenEchoFallback`**: fallback counter rate above zero for 10 minutes.
 - **`MasqueConnectIPTunLinkUpFailures`**: link-up failure counter rate above zero for 10 minutes.
+- **`MasqueConnectIPTunManagedNATApplyErrors`**: managed NAT apply error rate above zero for 10 minutes.
 
 Both set annotation **`runbook_url`** to this document (GitHub `blob/main` URL in-repo; override in forks if needed). **Alertmanager** forwards annotations to receivers (see `ops/observability/alertmanager/alertmanager.yml` header comment).
 

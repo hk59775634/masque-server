@@ -197,6 +197,28 @@ func TestBuild_QUICOnTunKernelForwardWithLinkUp(t *testing.T) {
 	}
 }
 
+func TestBuild_QUICOnTunKernelForwardWithManagedNAT(t *testing.T) {
+	doc := Build(Params{
+		Version:                   "test",
+		TCPListenAddr:             ":8443",
+		ControlPlaneBaseURL:       "http://127.0.0.1:8000",
+		QUICListenAddr:            ":8444",
+		ConnectIPTunKernelForward: true,
+		ConnectIPTunManagedNAT:    true,
+	})
+	tun := doc["tunnel"].(map[string]any)
+	quic := tun["quic"].(map[string]any)
+	ci := quic["connect_ip"].(map[string]any)
+	dg := ci["http3_datagrams"].(map[string]any)
+	if dg["tun_linux_managed_nat"] != true {
+		t.Fatalf("tun_linux_managed_nat: %v", dg["tun_linux_managed_nat"])
+	}
+	dev := ci["dev"].(map[string]any)
+	if _, ok := dev["tun_managed_nat_env"]; !ok {
+		t.Fatal("expected dev.tun_managed_nat_env")
+	}
+}
+
 func TestBuild_QUICOnRoutePushCIDR(t *testing.T) {
 	doc := Build(Params{
 		Version:                      "test",

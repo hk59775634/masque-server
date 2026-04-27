@@ -168,6 +168,13 @@ func runConnectIPDatagramEchoLoop(ctx context.Context, str *http3.Stream, cfg Li
 			if !maybeBringUpConnectIPTun(tunName, cfg.ConnectIPTunLinkUp) && cfg.ConnectIPTunLinkUpFailures != nil {
 				cfg.ConnectIPTunLinkUpFailures.Inc()
 			}
+			if !maybeConfigureConnectIPTunManagedNAT(tunName, cfg) {
+				if cfg.ConnectIPTunOpenEchoFallbacks != nil {
+					cfg.ConnectIPTunOpenEchoFallbacks.Inc()
+				}
+				log.Printf("connect-ip: managed NAT unavailable on %s; echo mode", tunName)
+				goto fallbackEcho
+			}
 			if cfg.ConnectIPTunBridgeActive != nil {
 				cfg.ConnectIPTunBridgeActive.Inc()
 				defer cfg.ConnectIPTunBridgeActive.Dec()
@@ -182,6 +189,7 @@ func runConnectIPDatagramEchoLoop(ctx context.Context, str *http3.Stream, cfg Li
 		log.Printf("connect-ip: tun forward unavailable: %v; echo mode", err)
 	}
 
+fallbackEcho:
 	for {
 		data, err := str.ReceiveDatagram(ctx)
 		if err != nil {

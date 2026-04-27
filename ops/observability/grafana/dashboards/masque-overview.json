@@ -155,6 +155,22 @@
       ],
       "title": "CONNECT-IP TUN link-up failure rate",
       "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" } }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 40 },
+      "id": 11,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "single" } },
+      "targets": [
+        {
+          "expr": "sum by (result) (rate(masque_connect_ip_tun_managed_nat_apply_total[5m]))",
+          "legendFormat": "{{result}}",
+          "refId": "A"
+        }
+      ],
+      "title": "CONNECT-IP managed NAT apply outcomes",
+      "type": "timeseries"
     }
   ],
   "refresh": "10s",
@@ -166,6 +182,6 @@
   "timepicker": {},
   "timezone": "",
   "title": "MASQUE Server Overview",
-  "version": 5,
+  "version": 6,
   "weekStart": ""
 }

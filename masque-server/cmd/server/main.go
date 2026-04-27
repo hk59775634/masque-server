@@ -80,6 +80,9 @@ func main() {
 	}
 	connectIPTunName := strings.TrimSpace(os.Getenv("CONNECT_IP_TUN_NAME"))
 	connectIPTunLinkUp := isTruthyEnv("CONNECT_IP_TUN_LINK_UP") && connectIPTunForward
+	connectIPTunManagedNAT := isTruthyEnv("CONNECT_IP_TUN_MANAGED_NAT") && connectIPTunForward
+	connectIPTunEgressIF := strings.TrimSpace(os.Getenv("CONNECT_IP_TUN_EGRESS_IFACE"))
+	connectIPTunAddrCIDR := strings.TrimSpace(os.Getenv("CONNECT_IP_TUN_ADDR_CIDR"))
 	capParams := capabilities.Params{
 		Version:                      version,
 		TCPListenAddr:                listenAddr,
@@ -91,6 +94,7 @@ func main() {
 		ConnectIPRouteAdvertPushCIDR: connectIPRouteAdvCIDR,
 		ConnectIPTunKernelForward:    connectIPTunForward,
 		ConnectIPTunLinkUp:           connectIPTunLinkUp,
+		ConnectIPTunManagedNAT:       connectIPTunManagedNAT,
 	}
 
 	router := chi.NewRouter()
@@ -241,32 +245,36 @@ func main() {
 		go func() {
 			skipConnectIPAuth := isTruthyEnv("CONNECT_IP_SKIP_AUTH") || isTruthyEnv("MASQUE_CONNECT_IP_SKIP_AUTH")
 			cfg := http3stub.ListenConfig{
-				Params:                          capParams,
-				ConnectIPResults:                metrics.connectIPTotal,
-				AuthorizeLatencyObserve:         metrics.authorizeLatency,
-				ConnectIPCapsulesParsed:         metrics.connectIPCapsulesParsed,
-				ConnectIPCapsuleParseErrors:     metrics.connectIPCapsuleParseErrors,
-				RFC9484Capsules:                 metrics.connectIPRFC9484Capsules,
-				ConnectIPAddressAssignWrites:    metrics.connectIPAddressAssignWrites,
-				ConnectIPDatagramsReceived:      metrics.connectIPDatagramsReceived,
-				ConnectIPDatagramsSent:          metrics.connectIPDatagramsSent,
-				ConnectIPDatagramDrops:          metrics.connectIPDatagramDrops,
-				ConnectIPDatagramACLDenied:      metrics.connectIPDatagramACLDenied,
-				ConnectIPDatagramUnknownContext: metrics.connectIPDatagramUnknownContext,
-				ConnectIPStreamsActive:          metrics.connectIPStreamsActive,
-				ConnectIPRoutePushResults:       metrics.connectIPRoutePushResults,
-				ConnectIPUDPRelay:               connectIPUDPRelay,
-				ConnectIPUDPRelayReplies:        metrics.connectIPUDPRelayReplies,
-				ConnectIPUDPRelayErrors:         metrics.connectIPUDPRelayErrors,
-				ConnectIPICMPRelay:              connectIPICMPRelay,
-				ConnectIPICMPRelayReplies:       metrics.connectIPICMPRelayReplies,
-				ConnectIPICMPRelayErrors:        metrics.connectIPICMPRelayErrors,
-				ConnectIPTunForward:             connectIPTunForward,
-				ConnectIPTunName:                connectIPTunName,
-				ConnectIPTunBridgeActive:        metrics.connectIPTunBridgeActive,
-				ConnectIPTunOpenEchoFallbacks:   metrics.connectIPTunOpenEchoFallbacks,
-				ConnectIPTunLinkUp:              connectIPTunLinkUp,
-				ConnectIPTunLinkUpFailures:      metrics.connectIPTunLinkUpFailures,
+				Params:                             capParams,
+				ConnectIPResults:                   metrics.connectIPTotal,
+				AuthorizeLatencyObserve:            metrics.authorizeLatency,
+				ConnectIPCapsulesParsed:            metrics.connectIPCapsulesParsed,
+				ConnectIPCapsuleParseErrors:        metrics.connectIPCapsuleParseErrors,
+				RFC9484Capsules:                    metrics.connectIPRFC9484Capsules,
+				ConnectIPAddressAssignWrites:       metrics.connectIPAddressAssignWrites,
+				ConnectIPDatagramsReceived:         metrics.connectIPDatagramsReceived,
+				ConnectIPDatagramsSent:             metrics.connectIPDatagramsSent,
+				ConnectIPDatagramDrops:             metrics.connectIPDatagramDrops,
+				ConnectIPDatagramACLDenied:         metrics.connectIPDatagramACLDenied,
+				ConnectIPDatagramUnknownContext:    metrics.connectIPDatagramUnknownContext,
+				ConnectIPStreamsActive:             metrics.connectIPStreamsActive,
+				ConnectIPRoutePushResults:          metrics.connectIPRoutePushResults,
+				ConnectIPUDPRelay:                  connectIPUDPRelay,
+				ConnectIPUDPRelayReplies:           metrics.connectIPUDPRelayReplies,
+				ConnectIPUDPRelayErrors:            metrics.connectIPUDPRelayErrors,
+				ConnectIPICMPRelay:                 connectIPICMPRelay,
+				ConnectIPICMPRelayReplies:          metrics.connectIPICMPRelayReplies,
+				ConnectIPICMPRelayErrors:           metrics.connectIPICMPRelayErrors,
+				ConnectIPTunForward:                connectIPTunForward,
+				ConnectIPTunName:                   connectIPTunName,
+				ConnectIPTunBridgeActive:           metrics.connectIPTunBridgeActive,
+				ConnectIPTunOpenEchoFallbacks:      metrics.connectIPTunOpenEchoFallbacks,
+				ConnectIPTunLinkUp:                 connectIPTunLinkUp,
+				ConnectIPTunLinkUpFailures:         metrics.connectIPTunLinkUpFailures,
+				ConnectIPTunManagedNAT:             connectIPTunManagedNAT,
+				ConnectIPTunEgressInterface:        connectIPTunEgressIF,
+				ConnectIPTunAddressCIDR:            connectIPTunAddrCIDR,
+				ConnectIPTunManagedNATApplyResults: metrics.connectIPTunManagedNATApply,
 			}
 			if !skipConnectIPAuth {
 				cfg.Authorizer = cpClient
@@ -291,6 +299,9 @@ func main() {
 			}
 			if connectIPTunLinkUp {
 				log.Printf("CONNECT_IP_TUN_LINK_UP: will run `ip link set dev <tun> up` after each successful TUN open (requires ip(8) and typically CAP_NET_ADMIN)")
+			}
+			if connectIPTunManagedNAT {
+				log.Printf("CONNECT_IP_TUN_MANAGED_NAT: will apply ip_forward/iptables for each session TUN (egress=%q, tun_addr=%q)", connectIPTunEgressIF, connectIPTunAddrCIDR)
 			}
 			if err := http3stub.Listen(cfg); err != nil {
 				log.Printf("QUIC HTTP/3 stub: %v", err)
@@ -371,6 +382,7 @@ type serverMetrics struct {
 	connectIPTunBridgeActive        prometheus.Gauge
 	connectIPTunOpenEchoFallbacks   prometheus.Counter
 	connectIPTunLinkUpFailures      prometheus.Counter
+	connectIPTunManagedNATApply     *prometheus.CounterVec
 	healthChecksTotal               prometheus.Counter
 }
 
@@ -483,6 +495,10 @@ func newServerMetrics(registry *prometheus.Registry) *serverMetrics {
 			Name: "masque_connect_ip_tun_link_up_failures_total",
 			Help: "CONNECT_IP_TUN_LINK_UP attempted to run `ip link set up` but failed.",
 		}),
+		connectIPTunManagedNATApply: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "masque_connect_ip_tun_managed_nat_apply_total",
+			Help: "CONNECT_IP_TUN_MANAGED_NAT apply outcomes (result label).",
+		}, []string{"result"}),
 		healthChecksTotal: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "masque_healthz_requests_total",
 			Help: "Total health endpoint hits.",
@@ -516,6 +532,7 @@ func newServerMetrics(registry *prometheus.Registry) *serverMetrics {
 		m.connectIPTunBridgeActive,
 		m.connectIPTunOpenEchoFallbacks,
 		m.connectIPTunLinkUpFailures,
+		m.connectIPTunManagedNATApply,
 		m.healthChecksTotal,
 	)
 
