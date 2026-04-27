@@ -113,6 +113,7 @@ Alert rules included:
 2. Submit a manual alert:
    - `./scripts/alerts/send-test-alert.sh`
 3. Confirm delivery in receiver output logs.
+   - The mock receiver prints an Alertmanager summary block (status, grouped alerts, `runbook_url`) and per-alert suggested next steps for common CONNECT-IP/TUN alerts.
 
 Current Alertmanager webhook target is:
 - `http://host.docker.internal:5001/alerts`
