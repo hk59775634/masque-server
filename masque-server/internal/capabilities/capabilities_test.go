@@ -175,6 +175,28 @@ func TestBuild_QUICOnTunKernelForward(t *testing.T) {
 	}
 }
 
+func TestBuild_QUICOnTunKernelForwardWithLinkUp(t *testing.T) {
+	doc := Build(Params{
+		Version:                   "test",
+		TCPListenAddr:             ":8443",
+		ControlPlaneBaseURL:       "http://127.0.0.1:8000",
+		QUICListenAddr:            ":8444",
+		ConnectIPTunKernelForward: true,
+		ConnectIPTunLinkUp:        true,
+	})
+	tun := doc["tunnel"].(map[string]any)
+	quic := tun["quic"].(map[string]any)
+	ci := quic["connect_ip"].(map[string]any)
+	dg := ci["http3_datagrams"].(map[string]any)
+	if dg["tun_linux_link_up"] != true {
+		t.Fatalf("tun_linux_link_up: %v", dg["tun_linux_link_up"])
+	}
+	dev := ci["dev"].(map[string]any)
+	if _, ok := dev["tun_link_up_env"]; !ok {
+		t.Fatal("expected dev.tun_link_up_env")
+	}
+}
+
 func TestBuild_QUICOnRoutePushCIDR(t *testing.T) {
 	doc := Build(Params{
 		Version:                      "test",

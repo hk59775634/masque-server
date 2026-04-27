@@ -1,6 +1,8 @@
 # CONNECT-IP host TUN bridge (Linux) — operator notes
 
-masque-server can set **`CONNECT_IP_TUN_FORWARD=1`** so each CONNECT-IP session opens a **host TUN** and bridges **RFC 9484 Context ID 0** IP datagrams to that interface after ACL (and after optional UDP/ICMP relay). The process does **not** enable **`net.ipv4.ip_forward`**, add **`iptables` NAT**, or bring the interface up.
+masque-server can set **`CONNECT_IP_TUN_FORWARD=1`** so each CONNECT-IP session opens a **host TUN** and bridges **RFC 9484 Context ID 0** IP datagrams to that interface after ACL (and after optional UDP/ICMP relay). The process does **not** enable **`net.ipv4.ip_forward`** or add **`iptables` NAT**.
+
+Optional **`CONNECT_IP_TUN_LINK_UP=1`** (with **`CONNECT_IP_TUN_FORWARD`**): after each successful TUN open, masque-server runs **`ip link set dev <ifname> up`** (best-effort; requires **`ip`** on **`PATH`** and usually **`CAP_NET_ADMIN`**). This does not replace full routing/SNAT setup below.
 
 ## Preconditions
 
@@ -10,6 +12,8 @@ masque-server can set **`CONNECT_IP_TUN_FORWARD=1`** so each CONNECT-IP session 
 ## Minimal host setup (example only)
 
 Replace placeholders: **`<tun>`** (interface from logs or `CONNECT_IP_TUN_NAME`), **`<wan>`** (outbound interface toward the Internet), **`<client-pfx>`** (IPv4 prefix used on the client/TUN side — must match your addressing plan).
+
+If **`CONNECT_IP_TUN_LINK_UP`** is **not** set, bring the interface up manually (or enable that env and run masque with sufficient privileges):
 
 ```bash
 # Bring TUN up (repeat per session if names differ, or use a fixed CONNECT_IP_TUN_NAME and one long-lived session)

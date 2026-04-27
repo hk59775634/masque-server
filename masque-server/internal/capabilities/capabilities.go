@@ -15,6 +15,8 @@ type Params struct {
 	ConnectIPRouteAdvertPushCIDR string
 	// ConnectIPTunKernelForward: CONNECT_IP_TUN_FORWARD on a Linux masque host (per-session TUN bridge; SNAT/routing not in-process).
 	ConnectIPTunKernelForward bool
+	// ConnectIPTunLinkUp: CONNECT_IP_TUN_LINK_UP with TUN forward — server runs ip link set up after each TUN open.
+	ConnectIPTunLinkUp bool
 }
 
 // Build returns the capabilities document shared by TCP and QUIC listeners.
@@ -37,6 +39,9 @@ func Build(p Params) map[string]any {
 		}
 		if p.ConnectIPTunKernelForward {
 			dgNote += " CONNECT_IP_TUN_FORWARD=1 (Linux): allowed Context ID 0 IP packets may be written to a per-session host TUN; replies from the TUN are sent to the client. Host sysctl/iptables SNAT and routing are operator-managed."
+			if p.ConnectIPTunLinkUp {
+				dgNote += " CONNECT_IP_TUN_LINK_UP: ip link set dev <tun> up after each successful TUN open (best-effort)."
+			}
 		}
 		http3dg := map[string]any{
 			"settings": "RFC 9297 HTTP Datagrams negotiated (H3_DATAGRAM); QUIC datagram extension enabled on listener",
@@ -51,6 +56,9 @@ func Build(p Params) map[string]any {
 		}
 		if p.ConnectIPTunKernelForward {
 			http3dg["tun_linux_per_session"] = true
+			if p.ConnectIPTunLinkUp {
+				http3dg["tun_linux_link_up"] = true
+			}
 		}
 		switch {
 		case p.ConnectIPUDPRelayIPv4 && p.ConnectIPICMPRelayIPv4:
@@ -117,6 +125,7 @@ func Build(p Params) map[string]any {
 				"icmp_relay_env":     "CONNECT_IP_ICMP_RELAY=1|true|yes|on enables optional IPv4 ICMP Echo relay (ping) after ACL; typically requires root or CAP_NET_RAW",
 				"route_adv_push_env": "CONNECT_IP_ROUTE_ADV_CIDR=<ipv4/cidr>: optional; server sends one ROUTE_ADVERTISEMENT after 200 when the inclusive range fits device ACL (same rule as inbound routes)",
 				"tun_forward_env":    "CONNECT_IP_TUN_FORWARD=1|true|yes|on (Linux only): per-session TUN for ACL-allowed IP datagrams; CONNECT_IP_TUN_NAME optional (TUNSETIFF); requires /dev/net/tun (typically root). SNAT (e.g. iptables MASQUERADE) and ip_forward are not applied by masque-server.",
+				"tun_link_up_env":    "CONNECT_IP_TUN_LINK_UP=1|true|yes|on (Linux, requires CONNECT_IP_TUN_FORWARD): after each successful TUN open, run ip link set dev <ifname> up (best-effort log on failure; needs ip(8) in PATH and CAP_NET_ADMIN).",
 			},
 		}
 		if p.ConnectIPRouteAdvertPushCIDR != "" {

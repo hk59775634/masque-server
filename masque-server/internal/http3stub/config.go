@@ -96,4 +96,8 @@ type ListenConfig struct {
 
 	// ConnectIPTunOpenEchoFallbacks, if non-nil, counts CONNECT_IP_TUN_FORWARD sessions where opening /dev/net/tun failed and the handler fell back to echo mode.
 	ConnectIPTunOpenEchoFallbacks prometheus.Counter
+
+	// ConnectIPTunLinkUp (Linux): after a successful TUN open, run `ip link set dev <if> up` (CONNECT_IP_TUN_LINK_UP).
+	// Requires `ip` in PATH and typically CAP_NET_ADMIN in addition to TUN access.
+	ConnectIPTunLinkUp bool
 }

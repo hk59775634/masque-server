@@ -165,6 +165,7 @@ func runConnectIPDatagramEchoLoop(ctx context.Context, str *http3.Stream, cfg Li
 		tun, tunName, cleanup, err := openConnectIPTunForward(cfg.ConnectIPTunName)
 		if err == nil {
 			defer cleanup()
+			maybeBringUpConnectIPTun(tunName, cfg.ConnectIPTunLinkUp)
 			if cfg.ConnectIPTunBridgeActive != nil {
 				cfg.ConnectIPTunBridgeActive.Inc()
 				defer cfg.ConnectIPTunBridgeActive.Dec()

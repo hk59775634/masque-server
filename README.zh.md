@@ -15,7 +15,7 @@
 
 - **Phase 1（M1–M4）**：控制面 + masque 最小桩 + Linux 客户端 + 可观测/部署材料；见 `docs/release-notes/`、`docs/runbooks/`。
 - **Phase 2a**：**`POST /v1/masque/tcp-probe`**（服务端代拨 TCP）、主监听可选 **HTTPS**、能力字段 `tunnel.phase2a`。
-- **Phase 2b（stub，本仓库已闭环）**：**CONNECT-IP 桩** + Linux **`connect-ip-tun`**（TUN、胶囊、分段默认路由、DNS 覆盖与退出恢复、**`-dns-resolvectl` 失败时可回退 `resolv.conf`（`-dns-resolvectl-fallback`）**、重连与运维向参数、`doctor -connect-ip`）；可选 **`CONNECT_IP_UDP_RELAY`** / **`CONNECT_IP_ICMP_RELAY`** / **`CONNECT_IP_ROUTE_ADV_CIDR`**；masque 在 **Linux** 上可选 **`CONNECT_IP_TUN_FORWARD`**（**每会话 host TUN 桥**，进程内不配置 SNAT）。**仍非** masque 侧托管 NAT / 全协议生产级 VPN。
+- **Phase 2b（stub，本仓库已闭环）**：**CONNECT-IP 桩** + Linux **`connect-ip-tun`**（TUN、胶囊、分段默认路由、DNS 覆盖与退出恢复、**`-dns-resolvectl` 失败时可回退 `resolv.conf`（`-dns-resolvectl-fallback`）**、重连与运维向参数、`doctor -connect-ip`）；可选 **`CONNECT_IP_UDP_RELAY`** / **`CONNECT_IP_ICMP_RELAY`** / **`CONNECT_IP_ROUTE_ADV_CIDR`**；masque 在 **Linux** 上可选 **`CONNECT_IP_TUN_FORWARD`**（**每会话 host TUN 桥**，进程内不配置 SNAT）与可选 **`CONNECT_IP_TUN_LINK_UP`**（**`ip link up`**）。**仍非** masque 侧托管 NAT / 全协议生产级 VPN。
 - **Phase 2b（生产级，仍待办）**：设备 **mTLS**、控制面↔masque **双向 TLS / 非 REST 硬化**、**RBAC**、服务端 **托管 NAT 拓扑与全 TCP·IPv6 内核路径**（见 `开发需求.md` §6）。
 
 ## QUIC / CONNECT-IP 桩（masque-server）
@@ -107,7 +107,7 @@ sudo go run ./cmd/client connect-ip-tun [-masque-server URL] [-connect-ip-udp ho
 - **`-dns-resolvectl-fallback`**（默认 **`true`**）：**`-dns-resolvectl`** 失败时自动改用 **`/etc/resolv.conf`**（与不加 **`-dns-resolvectl`** 相同）；设为 **`false`** 则 **`resolvectl`** 失败直接退出（强制只用 systemd-resolved 路径）。
 - **`-bypass-masque-host`**（默认 `true`，且仅在启用分段默认路由时生效）：为 **QUIC 目标主机**（及 `-masque-server` 若解析出不同 IPv4）添加 **`/32` 经当前默认网关** 的绕行，避免黑洞。
 - 默认服务端仍为 **echo 桩**；若开启 **`CONNECT_IP_UDP_RELAY`** / **`CONNECT_IP_ICMP_RELAY`**，则 **IPv4 UDP**（如 DNS）或 **ping** 可走真实应答，便于联调。
-- **masque-server（Linux）**：**`CONNECT_IP_TUN_FORWARD=1`** 时，每个 CONNECT-IP 会话打开一个 **host TUN**，将 ACL 允许的 **Context 0 IP** 写入 TUN，并从 TUN 读回包发给客户端（**`CONNECT_IP_TUN_NAME`** 可选，对应 TUNSETIFF）。**`net.ipv4.ip_forward`** 与 **SNAT**（如 **`iptables -t nat MASQUERADE`**）需运维在主机侧配置，进程内不执行。
+- **masque-server（Linux）**：**`CONNECT_IP_TUN_FORWARD=1`** 时，每个 CONNECT-IP 会话打开一个 **host TUN**，将 ACL 允许的 **Context 0 IP** 写入 TUN，并从 TUN 读回包发给客户端（**`CONNECT_IP_TUN_NAME`** 可选，对应 TUNSETIFF）。可选 **`CONNECT_IP_TUN_LINK_UP=1`**：每次 TUN 打开成功后执行 **`ip link set dev <if> up`**（需 **`PATH` 中有 `ip`**，通常 **`CAP_NET_ADMIN`**）。**`net.ipv4.ip_forward`** 与 **SNAT**（如 **`iptables -t nat MASQUERADE`**）仍由运维配置，进程内不执行。
 - 非 Linux 平台编译出的二进制执行该子命令会提示仅支持 Linux。
 
 ## 本地联调顺序（简版）
@@ -120,5 +120,5 @@ sudo go run ./cmd/client connect-ip-tun [-masque-server URL] [-connect-ip-udp ho
 
 ## 安全提示
 
-- **`CONNECT_IP_SKIP_AUTH`**、**`CONNECT_IP_STUB_ECHO_CONTEXTS`**、**`CONNECT_IP_UDP_RELAY`**、**`CONNECT_IP_ICMP_RELAY`**、**`CONNECT_IP_TUN_FORWARD`** 均可能扩大攻击面，仅应在受控环境使用。
+- **`CONNECT_IP_SKIP_AUTH`**、**`CONNECT_IP_STUB_ECHO_CONTEXTS`**、**`CONNECT_IP_UDP_RELAY`**、**`CONNECT_IP_ICMP_RELAY`**、**`CONNECT_IP_TUN_FORWARD`**、**`CONNECT_IP_TUN_LINK_UP`** 均可能扩大攻击面，仅应在受控环境使用。
 - 生产环境应使用正式 TLS、强制设备鉴权，并对中继与路由做独立安全评审。

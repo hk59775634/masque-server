@@ -79,6 +79,7 @@ func main() {
 		}
 	}
 	connectIPTunName := strings.TrimSpace(os.Getenv("CONNECT_IP_TUN_NAME"))
+	connectIPTunLinkUp := isTruthyEnv("CONNECT_IP_TUN_LINK_UP") && connectIPTunForward
 	capParams := capabilities.Params{
 		Version:                      version,
 		TCPListenAddr:                listenAddr,
@@ -89,6 +90,7 @@ func main() {
 		ConnectIPICMPRelayIPv4:       connectIPICMPRelay,
 		ConnectIPRouteAdvertPushCIDR: connectIPRouteAdvCIDR,
 		ConnectIPTunKernelForward:    connectIPTunForward,
+		ConnectIPTunLinkUp:           connectIPTunLinkUp,
 	}
 
 	router := chi.NewRouter()
@@ -263,6 +265,7 @@ func main() {
 				ConnectIPTunName:                connectIPTunName,
 				ConnectIPTunBridgeActive:        metrics.connectIPTunBridgeActive,
 				ConnectIPTunOpenEchoFallbacks:   metrics.connectIPTunOpenEchoFallbacks,
+				ConnectIPTunLinkUp:              connectIPTunLinkUp,
 			}
 			if !skipConnectIPAuth {
 				cfg.Authorizer = cpClient
@@ -284,6 +287,9 @@ func main() {
 			}
 			if connectIPTunForward {
 				log.Printf("CONNECT_IP_TUN_FORWARD: per-session host TUN bridge (CONNECT_IP_TUN_NAME=%q); sysctl net.ipv4.ip_forward and iptables SNAT (e.g. MASQUERADE) are operator-managed, not applied by masque-server", connectIPTunName)
+			}
+			if connectIPTunLinkUp {
+				log.Printf("CONNECT_IP_TUN_LINK_UP: will run `ip link set dev <tun> up` after each successful TUN open (requires ip(8) and typically CAP_NET_ADMIN)")
 			}
 			if err := http3stub.Listen(cfg); err != nil {
 				log.Printf("QUIC HTTP/3 stub: %v", err)
