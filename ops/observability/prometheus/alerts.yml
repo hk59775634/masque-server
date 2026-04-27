@@ -65,3 +65,14 @@ groups:
         annotations:
           summary: "CONNECT-IP proactive route push CIDR is invalid"
           description: "CONNECT_IP_ROUTE_ADV_CIDR is malformed; proactive ROUTE_ADVERTISEMENT cannot be sent."
+
+      - alert: MasqueConnectIPTunOpenEchoFallback
+        expr: |
+          sum(rate(masque_connect_ip_tun_open_echo_fallback_total[5m])) > 0
+        for: 10m
+        labels:
+          severity: warning
+          service: masque-server
+        annotations:
+          summary: "CONNECT-IP TUN forward enabled but host TUN open failed (echo fallback)"
+          description: "CONNECT_IP_TUN_FORWARD is on but per-session /dev/net/tun open keeps failing (check CAP_NET_ADMIN/root, device node, or CONNECT_IP_TUN_NAME). See docs/runbooks/connect-ip-tun-forward-linux.md."

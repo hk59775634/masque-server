@@ -110,6 +110,35 @@
       "targets": [{ "expr": "sum(increase(masque_connect_ip_route_push_total{result=\"sent\"}[1h]))", "refId": "A" }],
       "title": "CONNECT-IP Route Push Sent (1h)",
       "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "fieldConfig": {
+        "defaults": { "unit": "none", "decimals": 0, "color": { "mode": "palette-classic" } },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 32 },
+      "id": 8,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "single" } },
+      "targets": [{ "expr": "masque_connect_ip_tun_bridge_active", "legendFormat": "active", "refId": "A" }],
+      "title": "CONNECT-IP TUN bridge sessions (gauge)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" } }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 32 },
+      "id": 9,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "single" } },
+      "targets": [
+        {
+          "expr": "sum(rate(masque_connect_ip_tun_open_echo_fallback_total[5m]))",
+          "legendFormat": "fallback/s",
+          "refId": "A"
+        }
+      ],
+      "title": "CONNECT-IP TUN open → echo fallback rate",
+      "type": "timeseries"
     }
   ],
   "refresh": "10s",
@@ -121,6 +150,6 @@
   "timepicker": {},
   "timezone": "",
   "title": "MASQUE Server Overview",
-  "version": 3,
+  "version": 4,
   "weekStart": ""
 }

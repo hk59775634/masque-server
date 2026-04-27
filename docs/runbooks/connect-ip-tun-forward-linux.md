@@ -31,4 +31,10 @@ sudo iptables -t nat -A POSTROUTING -o <wan> -j MASQUERADE
 - **`masque_connect_ip_tun_bridge_active`**: gauge — streams currently in the TUN bridge loop.
 - **`masque_connect_ip_tun_open_echo_fallback_total`**: counter — **`CONNECT_IP_TUN_FORWARD`** was on but **`openConnectIPTunForward`** failed (permission, missing `/dev/net/tun`, etc.); the stream used **echo** instead.
 
+Grafana **`ops/observability/grafana/dashboards/masque-overview.json`** includes panels for both series.
+
+## Alerts
+
+Prometheus rule **`MasqueConnectIPTunOpenEchoFallback`** (`ops/observability/prometheus/alerts.yml`): fires when the **fallback counter rate** is above zero for **10 minutes** — usually misconfiguration or missing privileges while **`CONNECT_IP_TUN_FORWARD`** is enabled.
+
 See also **`GET /v1/masque/capabilities`** (`quic.connect_ip.dev.tun_forward_env`) and [README.zh.md](../../README.zh.md) (CONNECT-IP metrics list).
