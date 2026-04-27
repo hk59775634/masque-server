@@ -25,6 +25,7 @@ func cmdConnectIPTun(args []string) {
 	fs := flag.NewFlagSet("connect-ip-tun", flag.ExitOnError)
 	var masqueURL, connectIPUDP, tunName, addrCIDR string
 	noAddrCapsule := fs.Bool("no-address-capsule", false, "do not send ADDRESS_REQUEST or apply ADDRESS_ASSIGN from the CONNECT-IP stream (use with -addr only)")
+	applyRoutesFromCapsule := fs.Bool("apply-routes-from-capsule", false, "apply RFC 9484 ROUTE_ADVERTISEMENT to system routes (IPv4 single-CIDR ranges only; uses ip route replace)")
 	fs.StringVar(&masqueURL, "masque-server", "", "MASQUE server base URL (default: from config)")
 	fs.StringVar(&connectIPUDP, "connect-ip-udp", "", "override UDP host:port (default: from GET /v1/masque/capabilities listen_udp)")
 	fs.StringVar(&tunName, "tun-name", "", "requested TUN interface name (empty = kernel assigns, e.g. tun0)")
@@ -32,7 +33,7 @@ func cmdConnectIPTun(args []string) {
 	mtu := fs.Int("mtu", 1280, "set interface MTU via ip-link (0 = skip)")
 	linkUp := fs.Bool("up", true, "run \"ip link set dev <if> up\"")
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "usage: client connect-ip-tun [-masque-server URL] [-connect-ip-udp host:port] [-tun-name NAME] [-addr CIDR] [-no-address-capsule] [-mtu N] [-up=false]\n")
+		fmt.Fprintf(os.Stderr, "usage: client connect-ip-tun [-masque-server URL] [-connect-ip-udp host:port] [-tun-name NAME] [-addr CIDR] [-no-address-capsule] [-apply-routes-from-capsule] [-mtu N] [-up=false]\n")
 		fmt.Fprintf(os.Stderr, "  Linux only. Opens CONNECT-IP, creates TUN, maps TUN <-> RFC 9484 CID0 datagrams. Ctrl+C to exit.\n")
 		fs.PrintDefaults()
 	}
@@ -102,7 +103,7 @@ func cmdConnectIPTun(args []string) {
 		}
 	}
 	go func() {
-		if err := drainConnectIPCapsules(sess.Resp.Body, ifName, wantAutoAddr, nil); err != nil {
+		if err := drainConnectIPCapsules(sess.Resp.Body, ifName, wantAutoAddr, *applyRoutesFromCapsule, nil); err != nil {
 			log.Printf("connect-ip-tun: capsule reader finished: %v", err)
 		}
 	}()

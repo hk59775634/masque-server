@@ -18,6 +18,7 @@ import (
 const (
 	capsuleAddressAssign  uint64 = 0x01
 	capsuleAddressRequest uint64 = 0x02
+	capsuleRouteAdvertise uint64 = 0x03
 )
 
 var errCapsuleNeedMore = errors.New("need more capsule data")
@@ -84,6 +85,13 @@ type assignedAddr struct {
 	PrefixLength uint8
 }
 
+type routeRange struct {
+	IPVersion uint8
+	Start     net.IP
+	End       net.IP
+	Protocol  uint8
+}
+
 // parseAddressAssignPayload decodes RFC 9484 ADDRESS_ASSIGN inner payload (Figure 7).
 func parseAddressAssignPayload(payload []byte) ([]assignedAddr, error) {
 	r := bytes.NewReader(payload)
@@ -123,9 +131,87 @@ func parseAddressAssignPayload(payload []byte) ([]assignedAddr, error) {
 	return out, nil
 }
 
+// parseRouteAdvertisementPayload decodes RFC 9484 ROUTE_ADVERTISEMENT inner payload.
+func parseRouteAdvertisementPayload(payload []byte) ([]routeRange, error) {
+	r := bytes.NewReader(payload)
+	var out []routeRange
+	for r.Len() > 0 {
+		ipVer, err := r.ReadByte()
+		if err != nil {
+			return nil, fmt.Errorf("ip version: %w", err)
+		}
+		if ipVer != 4 && ipVer != 6 {
+			return nil, fmt.Errorf("ip version %d", ipVer)
+		}
+		addrLen := 4
+		if ipVer == 6 {
+			addrLen = 16
+		}
+		startBuf := make([]byte, addrLen)
+		if _, err := io.ReadFull(r, startBuf); err != nil {
+			return nil, fmt.Errorf("start ip: %w", err)
+		}
+		endBuf := make([]byte, addrLen)
+		if _, err := io.ReadFull(r, endBuf); err != nil {
+			return nil, fmt.Errorf("end ip: %w", err)
+		}
+		proto, err := r.ReadByte()
+		if err != nil {
+			return nil, fmt.Errorf("protocol: %w", err)
+		}
+		start := net.IP(append(net.IP(nil), startBuf...))
+		end := net.IP(append(net.IP(nil), endBuf...))
+		if bytes.Compare(start, end) > 0 {
+			return nil, fmt.Errorf("start after end")
+		}
+		out = append(out, routeRange{
+			IPVersion: ipVer,
+			Start:     start,
+			End:       end,
+			Protocol:  proto,
+		})
+	}
+	return out, nil
+}
+
+// routeRangeToCIDR converts an inclusive [start,end] range into a single CIDR if exact; false otherwise.
+func routeRangeToCIDR(start, end net.IP) (string, bool) {
+	s4 := start.To4()
+	e4 := end.To4()
+	if s4 == nil || e4 == nil {
+		return "", false
+	}
+	a := binaryBigEndianU32(s4)
+	b := binaryBigEndianU32(e4)
+	if b < a {
+		return "", false
+	}
+	size := b - a + 1
+	if size == 0 || (size&(size-1)) != 0 {
+		return "", false
+	}
+	if a&(size-1) != 0 {
+		return "", false
+	}
+	pfx := 32
+	for size > 1 {
+		pfx--
+		size >>= 1
+	}
+	return fmt.Sprintf("%s/%d", start.String(), pfx), true
+}
+
+func binaryBigEndianU32(ip net.IP) uint32 {
+	v4 := ip.To4()
+	if v4 == nil {
+		return 0
+	}
+	return uint32(v4[0])<<24 | uint32(v4[1])<<16 | uint32(v4[2])<<8 | uint32(v4[3])
+}
+
 // drainConnectIPCapsules reads the CONNECT-IP response stream until EOF. When wantAutoAddr is true,
 // applies the first IPv4 ADDRESS_ASSIGN via `ip addr add`. assignNotify receives one CIDR when applied (optional).
-func drainConnectIPCapsules(r io.Reader, ifName string, wantAutoAddr bool, assignNotify chan<- string) error {
+func drainConnectIPCapsules(r io.Reader, ifName string, wantAutoAddr, wantAutoRoute bool, assignNotify chan<- string) error {
 	const maxWire = 4 << 20
 	const maxBody = 1 << 20
 	buf := make([]byte, 32<<10)
@@ -179,6 +265,33 @@ func drainConnectIPCapsules(r io.Reader, ifName string, wantAutoAddr bool, assig
 								applied = true
 								break
 							}
+						}
+					}
+				}
+			case capsuleRouteAdvertise:
+				if wantAutoRoute {
+					ranges, rerr := parseRouteAdvertisementPayload(payload)
+					if rerr != nil {
+						log.Printf("connect-ip-tun: ROUTE_ADVERTISEMENT decode: %v", rerr)
+						break
+					}
+					for _, rg := range ranges {
+						// For now apply only IPv4 any-protocol routes representable as one CIDR.
+						if rg.IPVersion != 4 || rg.Protocol != 0 {
+							continue
+						}
+						cidr, ok := routeRangeToCIDR(rg.Start, rg.End)
+						if !ok {
+							log.Printf("connect-ip-tun: skip route range %s-%s (not single CIDR)", rg.Start, rg.End)
+							continue
+						}
+						cmd := exec.Command("ip", "route", "replace", cidr, "dev", ifName)
+						cmd.Stderr = os.Stderr
+						cmd.Stdout = os.Stdout
+						if err := cmd.Run(); err != nil {
+							log.Printf("connect-ip-tun: warn: ip route replace %s dev %s: %v", cidr, ifName, err)
+						} else {
+							log.Printf("connect-ip-tun: applied ROUTE_ADVERTISEMENT %s on %s", cidr, ifName)
 						}
 					}
 				}
