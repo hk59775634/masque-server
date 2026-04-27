@@ -11,6 +11,8 @@ type Params struct {
 	MainListenerTLS        bool   // LISTEN_TLS_CERT + LISTEN_TLS_KEY set (HTTPS on main TCP listener)
 	ConnectIPUDPRelayIPv4  bool   // CONNECT_IP_UDP_RELAY: optional IPv4/UDP user-space relay on CONNECT-IP
 	ConnectIPICMPRelayIPv4 bool   // CONNECT_IP_ICMP_RELAY: optional IPv4 ICMP Echo relay on CONNECT-IP
+	// ConnectIPRouteAdvertPushCIDR: CONNECT_IP_ROUTE_ADV_CIDR; optional IPv4 CIDR for one outbound ROUTE_ADVERTISEMENT after 200 (ACL must cover start–end).
+	ConnectIPRouteAdvertPushCIDR string
 }
 
 // Build returns the capabilities document shared by TCP and QUIC listeners.
@@ -57,7 +59,7 @@ func Build(p Params) map[string]any {
 		quicMap["status"] = "http3_stub_connect_ip"
 		quicMap["listen_udp_addr"] = p.QUICListenAddr
 		quicMap["tls"] = map[string]any{"mode": "ephemeral_self_signed"}
-		quicMap["connect_ip"] = map[string]any{
+		connectIP := map[string]any{
 			"stub":            true,
 			"rfc":             "RFC 9484 (CONNECT-IP); RFC 9220 (extended CONNECT); RFC 9297 (capsules)",
 			"path_hint":       "any :path with extended CONNECT (e.g. /.well-known/masque/connect-ip)",
@@ -73,6 +75,7 @@ func Build(p Params) map[string]any {
 			"rfc9484": map[string]any{
 				"decode":          []string{"ADDRESS_ASSIGN (0x01)", "ADDRESS_REQUEST (0x02)", "ROUTE_ADVERTISEMENT (0x03)"},
 				"route_policy":    "each ROUTE_ADVERTISEMENT range must fall entirely inside one device ACL allow.cidr (same rule covers start and end); empty ACL allows all",
+				"outbound_route":  "optional: after 200 the server may write one ROUTE_ADVERTISEMENT when CONNECT_IP_ROUTE_ADV_CIDR is set and the inclusive IPv4 range fits ACL",
 				"not_implemented": []string{"CONNECT-IP TCP or IPv6 datagram relay", "CONNECT-IP kernel forward / full router"},
 				"address_assign_reply": map[string]any{
 					"stub": true,
@@ -87,12 +90,20 @@ func Build(p Params) map[string]any {
 				return s + "; no server-side TUN"
 			}(),
 			"dev": map[string]any{
-				"skip_auth_env":     "CONNECT_IP_SKIP_AUTH or MASQUE_CONNECT_IP_SKIP_AUTH = 1|true|yes|on disables Bearer/Device-Fingerprint (not for production)",
-				"echo_contexts_env": "CONNECT_IP_STUB_ECHO_CONTEXTS=comma-separated non-zero Context IDs (e.g. 2,4) peels those datagrams for ACL/opaque echo instead of dropping as unknown (development only)",
-				"udp_relay_env":     "CONNECT_IP_UDP_RELAY=1|true|yes|on enables optional IPv4/UDP user-space relay for Context ID 0 datagrams after ACL (not for production without review)",
-				"icmp_relay_env":    "CONNECT_IP_ICMP_RELAY=1|true|yes|on enables optional IPv4 ICMP Echo relay (ping) after ACL; typically requires root or CAP_NET_RAW",
+				"skip_auth_env":      "CONNECT_IP_SKIP_AUTH or MASQUE_CONNECT_IP_SKIP_AUTH = 1|true|yes|on disables Bearer/Device-Fingerprint (not for production)",
+				"echo_contexts_env":  "CONNECT_IP_STUB_ECHO_CONTEXTS=comma-separated non-zero Context IDs (e.g. 2,4) peels those datagrams for ACL/opaque echo instead of dropping as unknown (development only)",
+				"udp_relay_env":      "CONNECT_IP_UDP_RELAY=1|true|yes|on enables optional IPv4/UDP user-space relay for Context ID 0 datagrams after ACL (not for production without review)",
+				"icmp_relay_env":     "CONNECT_IP_ICMP_RELAY=1|true|yes|on enables optional IPv4 ICMP Echo relay (ping) after ACL; typically requires root or CAP_NET_RAW",
+				"route_adv_push_env": "CONNECT_IP_ROUTE_ADV_CIDR=<ipv4/cidr>: optional; server sends one ROUTE_ADVERTISEMENT after 200 when the inclusive range fits device ACL (same rule as inbound routes)",
 			},
 		}
+		if p.ConnectIPRouteAdvertPushCIDR != "" {
+			connectIP["route_push"] = map[string]any{
+				"cidr": p.ConnectIPRouteAdvertPushCIDR,
+				"note": "ROUTE_ADVERTISEMENT is written on the CONNECT stream right after hijack (skipped if outside ACL)",
+			}
+		}
+		quicMap["connect_ip"] = connectIP
 		quicMap["note"] = "UDP HTTP/3: /healthz, /v1/masque/capabilities, and extended CONNECT :protocol connect-ip (stub). Use curl --http3 -k for local checks; CONNECT-IP needs an HTTP/3 client with extended CONNECT."
 	} else {
 		quicMap["enabled"] = false

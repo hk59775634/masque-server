@@ -50,6 +50,7 @@ go run ./cmd/server
 | `CONNECT_IP_STUB_ECHO_CONTEXTS` | 逗号分隔的非零 Context ID，允许剥离并进入与 IP 相同的 ACL/echo 路径（**开发用**）。 |
 | **`CONNECT_IP_UDP_RELAY`** | 为真且 ACL 允许时，对**未分片 IPv4/UDP**（Context ID 0 内 IP）做**用户态中继**：向目的 IP:UDP 口转发负载，将应答封装成新的 Context 0 包发回（**无 TCP/IPv6 中继**）。能力 JSON 中 `http3_datagrams.udp_ipv4_relay`、`ip_forward` 等会反映此项。 |
 | **`CONNECT_IP_ICMP_RELAY`** | 为真且 ACL 允许 **icmp** 时，对 **IPv4 ICMP Echo Request（type 8）** 代发并回送 **Echo Reply**（通常需 **root** 或 **CAP_NET_RAW** 以打开 `ip4:icmp`）。能力 JSON 含 `http3_datagrams.icmp_ipv4_echo_relay`。 |
+| **`CONNECT_IP_ROUTE_ADV_CIDR`** | 设为 **IPv4 CIDR**（如 `198.18.0.0/15`）时，CONNECT-IP 在 **200 且流劫持后** 主动下发一条 **ROUTE_ADVERTISEMENT**（与入站路由相同的 ACL：整段须在某一 `allow.cidr` 内）；便于客户端 **`connect-ip-tun -apply-routes-from-capsule`** 无需先发路由 capsule。能力 JSON 在 `connect_ip.route_push` 中展示当前 CIDR。 |
 
 ### Prometheus 指标（CONNECT-IP 相关节选）
 
@@ -58,6 +59,7 @@ go run ./cmd/server
 - `masque_connect_ip_datagrams_dropped_total`、`masque_connect_ip_datagram_acl_denied_total`
 - `masque_connect_ip_datagram_unknown_context_total`
 - `masque_connect_ip_streams_active`
+- 配置 `CONNECT_IP_ROUTE_ADV_CIDR` 时：`masque_connect_ip_route_push_total{result=sent|invalid_cidr|acl_denied|encode_error|write_error}`
 - 启用 UDP 中继时：`masque_connect_ip_udp_relay_replies_total`、`masque_connect_ip_udp_relay_errors_total{reason=...}`
 - 启用 ICMP 中继时：`masque_connect_ip_icmp_relay_replies_total`、`masque_connect_ip_icmp_relay_errors_total{reason=...}`
 

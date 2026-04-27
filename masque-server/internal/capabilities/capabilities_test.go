@@ -137,3 +137,23 @@ func TestBuild_MainListenerTLS(t *testing.T) {
 		t.Fatalf("transport.tls: %v", tr["tls"])
 	}
 }
+
+func TestBuild_QUICOnRoutePushCIDR(t *testing.T) {
+	doc := Build(Params{
+		Version:                      "test",
+		TCPListenAddr:                ":8443",
+		ControlPlaneBaseURL:          "http://127.0.0.1:8000",
+		QUICListenAddr:               ":8444",
+		ConnectIPRouteAdvertPushCIDR: "198.18.0.0/15",
+	})
+	tun := doc["tunnel"].(map[string]any)
+	quic := tun["quic"].(map[string]any)
+	ci := quic["connect_ip"].(map[string]any)
+	rp, ok := ci["route_push"].(map[string]any)
+	if !ok {
+		t.Fatal("expected route_push")
+	}
+	if rp["cidr"] != "198.18.0.0/15" {
+		t.Fatalf("cidr: %v", rp["cidr"])
+	}
+}

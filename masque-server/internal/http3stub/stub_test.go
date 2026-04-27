@@ -276,8 +276,17 @@ func TestConnectIPStubWithBearerAndFingerprint(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status=%d want 200", resp.StatusCode)
 	}
-	if testutil.ToFloat64(vec.WithLabelValues("ok")) != 1 {
-		t.Fatalf("ok counter=%v want 1", testutil.ToFloat64(vec.WithLabelValues("ok")))
+	deadline := time.Now().Add(3 * time.Second)
+	var okN float64
+	for time.Now().Before(deadline) {
+		okN = testutil.ToFloat64(vec.WithLabelValues("ok"))
+		if okN >= 1 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if okN != 1 {
+		t.Fatalf("ok counter=%v want 1", okN)
 	}
 }
 

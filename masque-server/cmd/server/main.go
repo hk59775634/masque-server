@@ -69,14 +69,16 @@ func main() {
 	cpClient := auth.NewClient(cpURL)
 	connectIPUDPRelay := isTruthyEnv("CONNECT_IP_UDP_RELAY")
 	connectIPICMPRelay := isTruthyEnv("CONNECT_IP_ICMP_RELAY")
+	connectIPRouteAdvCIDR := strings.TrimSpace(os.Getenv("CONNECT_IP_ROUTE_ADV_CIDR"))
 	capParams := capabilities.Params{
-		Version:                version,
-		TCPListenAddr:          listenAddr,
-		ControlPlaneBaseURL:    cpURL,
-		QUICListenAddr:         quicListen,
-		MainListenerTLS:        mainTLS,
-		ConnectIPUDPRelayIPv4:  connectIPUDPRelay,
-		ConnectIPICMPRelayIPv4: connectIPICMPRelay,
+		Version:                      version,
+		TCPListenAddr:                listenAddr,
+		ControlPlaneBaseURL:          cpURL,
+		QUICListenAddr:               quicListen,
+		MainListenerTLS:              mainTLS,
+		ConnectIPUDPRelayIPv4:        connectIPUDPRelay,
+		ConnectIPICMPRelayIPv4:       connectIPICMPRelay,
+		ConnectIPRouteAdvertPushCIDR: connectIPRouteAdvCIDR,
 	}
 
 	router := chi.NewRouter()
@@ -240,6 +242,7 @@ func main() {
 				ConnectIPDatagramACLDenied:      metrics.connectIPDatagramACLDenied,
 				ConnectIPDatagramUnknownContext: metrics.connectIPDatagramUnknownContext,
 				ConnectIPStreamsActive:          metrics.connectIPStreamsActive,
+				ConnectIPRoutePushResults:       metrics.connectIPRoutePushResults,
 				ConnectIPUDPRelay:               connectIPUDPRelay,
 				ConnectIPUDPRelayReplies:        metrics.connectIPUDPRelayReplies,
 				ConnectIPUDPRelayErrors:         metrics.connectIPUDPRelayErrors,
@@ -261,6 +264,9 @@ func main() {
 			}
 			if connectIPICMPRelay {
 				log.Printf("CONNECT_IP_ICMP_RELAY is set: IPv4 ICMP Echo may be relayed after ACL (typically requires root/CAP_NET_RAW)")
+			}
+			if connectIPRouteAdvCIDR != "" {
+				log.Printf("CONNECT_IP_ROUTE_ADV_CIDR=%s: server may push ROUTE_ADVERTISEMENT after 200 when ACL covers the range", connectIPRouteAdvCIDR)
 			}
 			if err := http3stub.Listen(cfg); err != nil {
 				log.Printf("QUIC HTTP/3 stub: %v", err)
@@ -333,6 +339,7 @@ type serverMetrics struct {
 	connectIPDatagramACLDenied      prometheus.Counter
 	connectIPDatagramUnknownContext prometheus.Counter
 	connectIPStreamsActive          prometheus.Gauge
+	connectIPRoutePushResults       *prometheus.CounterVec
 	connectIPUDPRelayReplies        prometheus.Counter
 	connectIPUDPRelayErrors         *prometheus.CounterVec
 	connectIPICMPRelayReplies       prometheus.Counter
@@ -387,7 +394,7 @@ func newServerMetrics(registry *prometheus.Registry) *serverMetrics {
 		}, []string{"cause"}),
 		connectIPRFC9484Capsules: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "masque_connect_ip_rfc9484_capsules_total",
-			Help: "RFC 9484 capsule payloads successfully decoded on CONNECT-IP streams.",
+			Help: "RFC 9484 capsule events on CONNECT-IP streams (decoded peer payloads, or server-pushed ROUTE_ADVERTISEMENT).",
 		}, []string{"capsule"}),
 		connectIPAddressAssignWrites: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "masque_connect_ip_address_assign_writes_total",
@@ -417,6 +424,10 @@ func newServerMetrics(registry *prometheus.Registry) *serverMetrics {
 			Name: "masque_connect_ip_streams_active",
 			Help: "CONNECT-IP stub streams currently in the post-200 hijacked phase (same scope as capsule/datagram handlers).",
 		}),
+		connectIPRoutePushResults: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "masque_connect_ip_route_push_total",
+			Help: "Proactive CONNECT-IP ROUTE_ADVERTISEMENT outcomes when CONNECT_IP_ROUTE_ADV_CIDR is configured.",
+		}, []string{"result"}),
 		connectIPUDPRelayReplies: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "masque_connect_ip_udp_relay_replies_total",
 			Help: "CONNECT-IP IPv4/UDP relay replies sent (CONNECT_IP_UDP_RELAY).",
@@ -458,6 +469,7 @@ func newServerMetrics(registry *prometheus.Registry) *serverMetrics {
 		m.connectIPDatagramACLDenied,
 		m.connectIPDatagramUnknownContext,
 		m.connectIPStreamsActive,
+		m.connectIPRoutePushResults,
 		m.connectIPUDPRelayReplies,
 		m.connectIPUDPRelayErrors,
 		m.connectIPICMPRelayReplies,

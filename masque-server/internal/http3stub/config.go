@@ -78,4 +78,8 @@ type ListenConfig struct {
 
 	// ConnectIPStreamsActive, if non-nil, gauge incremented after 200 + stream hijack until handler returns.
 	ConnectIPStreamsActive prometheus.Gauge
+
+	// ConnectIPRoutePushResults, if non-nil, counts proactive ROUTE_ADVERTISEMENT push outcomes
+	// (result labels: sent, invalid_cidr, acl_denied, encode_error, write_error).
+	ConnectIPRoutePushResults *prometheus.CounterVec
 }

@@ -2,7 +2,9 @@ package http3stub
 
 import (
 	"errors"
+	"log"
 	"net"
+	"strings"
 
 	"afbuyers/masque-server/internal/auth"
 	"afbuyers/masque-server/internal/rfc9484"
@@ -17,6 +19,49 @@ func incRFC9484(cfg ListenConfig, capsule string) {
 	if cfg.RFC9484Capsules != nil {
 		cfg.RFC9484Capsules.WithLabelValues(capsule).Inc()
 	}
+}
+
+func incRoutePush(cfg ListenConfig, result string) {
+	if cfg.ConnectIPRoutePushResults != nil {
+		cfg.ConnectIPRoutePushResults.WithLabelValues(result).Inc()
+	}
+}
+
+type connectIPStreamWriter interface {
+	Write(p []byte) (int, error)
+}
+
+// maybePushConnectIPRouteAdvert writes one ROUTE_ADVERTISEMENT after 200 when
+// Params.ConnectIPRouteAdvertPushCIDR is set, the CIDR parses, and (if acl is non-empty) the range fits ACL.
+func maybePushConnectIPRouteAdvert(str connectIPStreamWriter, acl map[string]any, cfg ListenConfig) {
+	cidr := strings.TrimSpace(cfg.Params.ConnectIPRouteAdvertPushCIDR)
+	if cidr == "" {
+		return
+	}
+	rg, err := rfc9484.IPv4CIDRToIPRange(cidr)
+	if err != nil {
+		incRoutePush(cfg, "invalid_cidr")
+		log.Printf("connect-ip stub: CONNECT_IP_ROUTE_ADV_CIDR invalid %q: %v", cidr, err)
+		return
+	}
+	if !auth.ACLCoversIPRange(acl, rg.Start, rg.End) {
+		incRoutePush(cfg, "acl_denied")
+		log.Printf("connect-ip stub: skip route push %s: range outside device ACL", cidr)
+		return
+	}
+	wire, err := rfc9484.EncodeRouteAdvertisement([]rfc9484.IPRange{rg})
+	if err != nil {
+		incRoutePush(cfg, "encode_error")
+		log.Printf("connect-ip stub: encode route push: %v", err)
+		return
+	}
+	if _, err := str.Write(wire); err != nil {
+		incRoutePush(cfg, "write_error")
+		log.Printf("connect-ip stub: route push write: %v", err)
+		return
+	}
+	incRoutePush(cfg, "sent")
+	incRFC9484(cfg, "route_advertisement_push")
 }
 
 // stubAssignFromRequest maps one requested address to a stub assignment (TEST-NET / documentation space).

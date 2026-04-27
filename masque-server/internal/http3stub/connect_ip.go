@@ -100,6 +100,8 @@ func serveConnectIPStub(w http.ResponseWriter, r *http.Request, cfg ListenConfig
 	}
 	defer str.Close()
 
+	maybePushConnectIPRouteAdvert(str, acl, cfg)
+
 	dgCtx, dgCancel := context.WithCancel(str.Context())
 	var dgWg sync.WaitGroup
 	dgWg.Add(1)
