@@ -186,8 +186,9 @@ func cmdConnect(args []string) {
 	doCheck := fs.Bool("check", false, "verify GET /api/v1/devices/self on control plane before connecting to masque")
 	dryRun := fs.Bool("dry-run", false, "POST /connect only; print response and exit without ip route or /etc/resolv.conf changes (no root)")
 	connectRetries := fs.Int("connect-retries", 2, "extra attempts for POST /connect on 429, 5xx, or transport errors (0 = single try)")
+	masqueOverride := fs.String("masque-server", "", "MASQUE base URL for this connect only (default: masque_server_url from saved config)")
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "usage: client connect [-check] [-dry-run] [-connect-retries N]\n")
+		fmt.Fprintf(os.Stderr, "usage: client connect [-check] [-dry-run] [-connect-retries N] [-masque-server URL]\n")
 		fs.PrintDefaults()
 	}
 	_ = fs.Parse(args)
@@ -204,8 +205,16 @@ func cmdConnect(args []string) {
 		fmt.Fprintln(os.Stderr, "connect: control plane device/policy OK (-check)")
 	}
 
+	masqueBase := strings.TrimRight(strings.TrimSpace(cfg.MasqueServerURL), "/")
+	if s := strings.TrimSpace(*masqueOverride); s != "" {
+		masqueBase = strings.TrimRight(s, "/")
+	}
+	if masqueBase == "" {
+		fatal(errors.New("connect: empty masque server URL (activate first or pass -masque-server)"))
+	}
+
 	reqBody := map[string]string{"device_token": cfg.DeviceToken, "fingerprint": cfg.Fingerprint}
-	connectURL := joinURL(cfg.MasqueServerURL, "/connect")
+	connectURL := joinURL(masqueBase, "/connect")
 	raw, err := postJSONWithRetry(connectURL, reqBody, *connectRetries)
 	if err != nil {
 		fatal(err)

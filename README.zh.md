@@ -74,6 +74,7 @@ go run ./cmd/server
 仓库根目录 **`scripts/masque-quick-connect.sh`**：交互输入 **控制面账号邮箱与密码**，自动调用 **`POST /api/v1/devices/activation-code-with-credentials`**（携带本地持久化的 **`~/.config/masque-linux-client/device-fingerprint`**），再执行 **`masque-client activate -verify`** 与 **`connect`**。
 
 - 默认 **`CONTROL_PLANE_URL=https://www.afbuyers.com`**，默认 **`CONNECT_MODE=dry-run`**（不改路由；真连接：`CONNECT_MODE=real ./scripts/masque-quick-connect.sh`，会 **`sudo`**）。
+- 若曾用错误的 **`MASQUE_SERVER_URL`** 激活，本地 **`~/.masque-client.json`** 里可能是 **`http://127.0.0.1:8443`**：脚本在控制面非 localhost 时会自动改写成 **`DEFAULT_PUBLIC_MASQUE`**（默认 `http://www.afbuyers.com:8443`），也可设置 **`MASQUE_SERVER_URL`**；或手动：`masque-client connect -masque-server http://www.afbuyers.com:8443 ...`。
 - 已存在 **`~/.masque-client.json`** 且含 `device_token` 时，**跳过登录/激活**，直接 `connect`。
 - 需已安装 **`masque-client`**（`PATH` 或设置 **`MASQUE_CLIENT=/path/to/masque-client`**）。
 

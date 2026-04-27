@@ -6,12 +6,18 @@
 #   CONTROL_PLANE_URL   default https://www.afbuyers.com
 #   MASQUE_CLIENT       path to masque-client binary (default: masque-client from PATH)
 #   CONNECT_MODE        dry-run | real  (default: dry-run; real uses sudo for routes/DNS)
+#   MASQUE_SERVER_URL   if ~/.masque-client.json still has http://127.0.0.1:8443 (old activate),
+#                       set this to your public masque, e.g. http://www.afbuyers.com:8443
+#   DEFAULT_PUBLIC_MASQUE  when MASQUE_SERVER_URL unset and control plane is not localhost,
+#                       loopback masque in config is rewritten to this (default http://www.afbuyers.com:8443)
+#   SKIP_MASQUE_CONFIG_FIX  set to 1 to never rewrite masque_server_url in the JSON config
 set -euo pipefail
 
 CONTROL_PLANE_URL="${CONTROL_PLANE_URL:-https://www.afbuyers.com}"
 CP="${CONTROL_PLANE_URL%/}"
 MASQUE_CLIENT="${MASQUE_CLIENT:-masque-client}"
 CONNECT_MODE="${CONNECT_MODE:-dry-run}"
+DEFAULT_PUBLIC_MASQUE="${DEFAULT_PUBLIC_MASQUE:-http://www.afbuyers.com:8443}"
 
 CONFIG_DEFAULT="${HOME}/.masque-client.json"
 if [[ -n "${MASQUE_CLIENT_CONFIG:-}" ]]; then
@@ -87,6 +93,36 @@ print(json.dumps({"email": email, "password": password, "fingerprint": fp, "devi
 		-code "${RAW_CODE}" \
 		-verify
 fi
+
+# Saved config from an old server .env often has masque on 127.0.0.1 — unusable off-host.
+fix_loopback_masque_in_client_config() {
+	if [[ "${SKIP_MASQUE_CONFIG_FIX:-0}" == "1" ]]; then
+		return
+	fi
+	[[ -f "${CONFIG_FILE}" ]] || return
+	local target="${MASQUE_SERVER_URL:-}"
+	if [[ -z "${target}" ]]; then
+		if [[ "${CP}" == *'127.0.0.1'* ]] || [[ "${CP}" == *'localhost'* ]]; then
+			return
+		fi
+		target="${DEFAULT_PUBLIC_MASQUE}"
+	fi
+	target="${target%/}"
+	python3 -c '
+import json, sys
+path, target = sys.argv[1], sys.argv[2]
+with open(path) as f:
+    c = json.load(f)
+u = (c.get("masque_server_url") or "").lower()
+if "127.0.0.1" in u or "localhost" in u or u.startswith("http://0.0.0.0"):
+    c["masque_server_url"] = target
+    with open(path, "w") as f:
+        json.dump(c, f, indent=2)
+    print("[quick] fixed masque_server_url in %s -> %s" % (path, target))
+' "${CONFIG_FILE}" "${target}"
+}
+
+fix_loopback_masque_in_client_config
 
 case "${CONNECT_MODE}" in
 	dry-run)
