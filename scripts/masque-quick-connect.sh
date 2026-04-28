@@ -193,8 +193,14 @@ u = urlparse(sys.argv[1])
 h = u.hostname
 if not h:
     raise SystemExit(1)
-port = int(sys.argv[2])
-print("%s:%d" % (h, port))
+# Masque TCP/HTTP is usually :8443; QUIC is a separate UDP listener (default :8444).
+# Never infer the HTTP port for QUIC when the URL is the common :8443 control plane.
+default_udp = int(sys.argv[2]) if len(sys.argv) > 2 and sys.argv[2] else 8444
+url_port = u.port
+if url_port == 8443 and default_udp == 8443:
+    default_udp = 8444
+udp_port = default_udp
+print("%s:%d" % (h, udp_port))
 ' "${ms}" "${AUTO_CONNECT_IP_UDP_PORT:-8444}")" || return
 	CONNECT_IP_UDP="${inferred}"
 	echo "[quick] inferred CONNECT_IP_UDP=${CONNECT_IP_UDP} (override with CONNECT_IP_UDP=... or set AUTO_CONNECT_IP_UDP=0)"
