@@ -84,7 +84,7 @@ func doctorProbeConnectIP(ctx context.Context, udpHostPort, deviceToken, fingerp
 	dctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	sess, err := dialConnectIP(dctx, udpHostPort, deviceToken, fingerprint)
+	sess, err := dialConnectIP(dctx, udpHostPort, deviceToken, fingerprint, nil)
 	if err != nil {
 		return err
 	}

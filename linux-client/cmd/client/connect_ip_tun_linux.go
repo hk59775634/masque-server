@@ -17,6 +17,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/quic-go/quic-go"
 	"github.com/quic-go/quic-go/http3"
 	"golang.org/x/sys/unix"
 )
@@ -48,12 +49,20 @@ func cmdConnectIPTun(args []string) {
 	dnsResolvectlFallback := fs.Bool("dns-resolvectl-fallback", true, "with -dns -dns-resolvectl: if resolvectl fails, fall back to overwriting /etc/resolv.conf (same as without -dns-resolvectl); when false, exit on resolvectl failure")
 	bypassMasqueHost := fs.Bool("bypass-masque-host", true, "with -route split|all (or -split-default-route): add /32 for QUIC server (and masque HTTPS host if different) via system default gateway (anti black-hole)")
 	reconnectMaxSessionDrops := fs.Int("reconnect-max-session-drops", 0, "exit after this many consecutive session drops after a successful dial (0 = unlimited; resets on each successful dial)")
+	quicMaxIdle := fs.Duration("quic-max-idle", 30*time.Minute, "QUIC MaxIdleTimeout for CONNECT-IP (capsule HTTP/3 stream closes on idle without keepalive)")
+	quicKeepalive := fs.Duration("quic-keepalive", 15*time.Second, "QUIC keep-alive ping period while TUN is quiet (0 disables; combine with long -quic-max-idle)")
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "usage: client connect-ip-tun [-masque-server URL] [-connect-ip-udp host:port] [-tun-name NAME] [-addr CIDR] [-no-address-capsule] [-apply-routes-from-capsule] [-route none|split|all] [-split-default-route] [-dns 1.1.1.1,8.8.8.8] [-dns-resolvectl] [-dns-resolvectl-fallback=true] [-bypass-masque-host=true] [-mtu N] [-up=false] [-reconnect] [-reconnect-initial-backoff 1s] [-reconnect-max-backoff 15s] [-reconnect-max-dial-failures N] [-reconnect-max-session-drops N] [-reconnect-log-interval 30s]\n")
+		fmt.Fprintf(os.Stderr, "usage: client connect-ip-tun [-masque-server URL] [-connect-ip-udp host:port] [-tun-name NAME] [-addr CIDR] [-no-address-capsule] [-apply-routes-from-capsule] [-route none|split|all] [-split-default-route] [-dns 1.1.1.1,8.8.8.8] [-dns-resolvectl] [-dns-resolvectl-fallback=true] [-bypass-masque-host=true] [-mtu N] [-up=false] [-quic-max-idle 30m] [-quic-keepalive 15s] [-reconnect] [-reconnect-initial-backoff 1s] [-reconnect-max-backoff 15s] [-reconnect-max-dial-failures N] [-reconnect-max-session-drops N] [-reconnect-log-interval 30s]\n")
 		fmt.Fprintf(os.Stderr, "  Linux only. Opens CONNECT-IP, creates TUN, maps TUN <-> RFC 9484 CID0 datagrams. Ctrl+C to exit.\n")
 		fs.PrintDefaults()
 	}
 	_ = fs.Parse(args)
+
+	quicCfg := &quic.Config{
+		EnableDatagrams: true,
+		MaxIdleTimeout:  *quicMaxIdle,
+		KeepAlivePeriod: *quicKeepalive,
+	}
 
 	dnsList := parseCommaList(dnsCSV)
 	routeTrim := strings.TrimSpace(strings.ToLower(routeMode))
@@ -232,7 +241,7 @@ runLoop:
 			break
 		}
 		dctx, dcancel := context.WithTimeout(ctx, 20*time.Second)
-		sess, err := dialConnectIP(dctx, udpTarget, cfg.DeviceToken, cfg.Fingerprint)
+		sess, err := dialConnectIP(dctx, udpTarget, cfg.DeviceToken, cfg.Fingerprint, quicCfg)
 		dcancel()
 		if err != nil {
 			if !*reconnect {

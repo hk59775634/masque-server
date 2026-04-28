@@ -41,29 +41,74 @@ func (s *connectIPSession) Close() {
 	}
 }
 
-// dialConnectIP performs QUIC + HTTP/3 extended CONNECT :protocol connect-ip until HTTP 200.
-// The caller must read or drain resp.Body (e.g. capsules); see connectIPTunDrainResponseBody.
-func dialConnectIP(ctx context.Context, udpHostPort, deviceToken, fingerprint string) (*connectIPSession, error) {
-	if _, _, err := net.SplitHostPort(udpHostPort); err != nil {
-		return nil, fmt.Errorf("UDP address %q: %w", udpHostPort, err)
+// defaultConnectIPQUICConfig matches long-lived VPN-style CONNECT-IP use: quiet TUN must not
+// drop the QUIC session every 30s (quic-go default idle timeout).
+func defaultConnectIPQUICConfig() *quic.Config {
+	return &quic.Config{
+		EnableDatagrams: true,
+		MaxIdleTimeout:  30 * time.Minute,
+		KeepAlivePeriod: 15 * time.Second,
 	}
+}
 
-	tlsHost, _, err := net.SplitHostPort(udpHostPort)
+// ipv4QUICDialAddr returns a literal IPv4:port for QUIC and the TLS ServerName (hostname for SNI
+// when dialing by IP after DNS). IPv6 literals are rejected so broken AAAA paths cannot stall dial.
+func ipv4QUICDialAddr(ctx context.Context, udpHostPort string) (dialAddr, tlsServerName string, err error) {
+	host, port, err := net.SplitHostPort(udpHostPort)
+	if err != nil {
+		return "", "", fmt.Errorf("UDP address %q: %w", udpHostPort, err)
+	}
+	host = stripIPv6Brackets(host)
+	if ip := net.ParseIP(host); ip != nil {
+		if ip.To4() == nil {
+			return "", "", fmt.Errorf("CONNECT-IP QUIC requires IPv4 or a hostname with an A record; got IPv6 literal %q", host)
+		}
+		return udpHostPort, host, nil
+	}
+	ips, err := net.DefaultResolver.LookupIP(ctx, "ip4", host)
+	if err != nil {
+		return "", "", fmt.Errorf("IPv4 DNS lookup %q: %w", host, err)
+	}
+	if len(ips) == 0 {
+		return "", "", fmt.Errorf("no IPv4 address for %q", host)
+	}
+	v4 := ips[0].To4()
+	if v4 == nil {
+		return "", "", fmt.Errorf("resolver returned non-IPv4 for %q", host)
+	}
+	return net.JoinHostPort(v4.String(), port), host, nil
+}
+
+// dialConnectIP performs QUIC + HTTP/3 extended CONNECT :protocol connect-ip until HTTP 200.
+// quicConfig may be nil to use defaults (30m idle, 15s keepalive). Non-nil configs are cloned
+// and EnableDatagrams is forced on.
+// The caller must read or drain resp.Body (e.g. capsules); see connectIPTunDrainResponseBody.
+func dialConnectIP(ctx context.Context, udpHostPort, deviceToken, fingerprint string, quicConfig *quic.Config) (*connectIPSession, error) {
+	dialAddr, tlsServerName, err := ipv4QUICDialAddr(ctx, udpHostPort)
 	if err != nil {
 		return nil, err
 	}
-	tlsHost = stripIPv6Brackets(tlsHost)
 
 	tlsCfg := &tls.Config{
 		InsecureSkipVerify: true,
 		NextProtos:         []string{http3.NextProtoH3},
-		ServerName:         tlsHost,
+		ServerName:         tlsServerName,
 	}
 
-	quicConf := &quic.Config{EnableDatagrams: true}
-	conn, err := quic.DialAddrEarly(ctx, udpHostPort, tlsCfg, quicConf)
+	// quicConfig: per-dial override; if nil, use long idle + keepalive. The quic-go
+	// default MaxIdleTimeout is 30s with no keepalive, which drops the CONNECT-IP
+	// response body (capsule) and the whole session when the TUN is quiet.
+	quicConf := quicConfig
+	if quicConf == nil {
+		quicConf = defaultConnectIPQUICConfig()
+	} else {
+		q := *quicConf
+		q.EnableDatagrams = true
+		quicConf = &q
+	}
+	conn, err := quic.DialAddrEarly(ctx, dialAddr, tlsCfg, quicConf)
 	if err != nil {
-		return nil, fmt.Errorf("QUIC dial %s: %w", udpHostPort, err)
+		return nil, fmt.Errorf("QUIC dial %s: %w", dialAddr, err)
 	}
 
 	tr := &http3.Transport{
