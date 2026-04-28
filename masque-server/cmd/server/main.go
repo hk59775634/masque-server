@@ -628,5 +628,17 @@ func newServerMetrics(registry *prometheus.Registry) *serverMetrics {
 		m.healthChecksTotal,
 	)
 
+	// Pre-initialize label series so dashboards/bench checks can assert existence before first event.
+	m.connectIPTunManagedNATApply.WithLabelValues("ok")
+	m.connectIPTunManagedNATApply.WithLabelValues("error")
+	m.connectIPTunManagedNATBackend.WithLabelValues("nftables", "ok")
+	m.connectIPTunManagedNATBackend.WithLabelValues("nftables", "error")
+	m.connectIPTunManagedNATBackend.WithLabelValues("nftables", "fallback")
+	m.connectIPTunManagedNATBackend.WithLabelValues("iptables", "ok")
+	m.connectIPTunManagedNATBackend.WithLabelValues("iptables", "error")
+	m.connectIPTunManagedNATBackend.WithLabelValues("iptables", "fallback")
+	m.connectIPTunSharedConflictReason.WithLabelValues("active_reassign")
+	m.connectIPTunSharedConflictReason.WithLabelValues("stale_reassign")
+
 	return m
 }
