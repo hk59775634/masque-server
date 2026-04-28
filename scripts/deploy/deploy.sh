@@ -11,6 +11,11 @@ NEW_RELEASE="${RELEASES_DIR}/${TIMESTAMP}"
 echo "[deploy] environment=${ENVIRONMENT}"
 mkdir -p "${RELEASES_DIR}"
 
+if [[ "${DEPLOY_DATAPLANE_PREFLIGHT:-1}" == "1" ]]; then
+	echo "[deploy] dataplane preflight checks..."
+	bash "${ROOT_DIR}/scripts/deploy/dataplane-preflight.sh" "deploy"
+fi
+
 echo "[deploy] creating release: ${NEW_RELEASE}"
 mkdir -p "${NEW_RELEASE}"
 

@@ -5,6 +5,11 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 RELEASES_DIR="${ROOT_DIR}/releases"
 CURRENT_LINK="${ROOT_DIR}/current"
 
+if [[ "${ROLLBACK_DATAPLANE_PREFLIGHT:-1}" == "1" ]]; then
+  echo "[rollback] dataplane preflight checks..."
+  bash "${ROOT_DIR}/scripts/deploy/dataplane-preflight.sh" "rollback"
+fi
+
 if [[ ! -d "${RELEASES_DIR}" ]]; then
   echo "[rollback] releases directory not found: ${RELEASES_DIR}"
   exit 1

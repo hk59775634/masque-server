@@ -40,17 +40,36 @@ func ensureIptablesRule(table string, ruleArgs ...string) error {
 	return runCombined("iptables", addArgs...)
 }
 
-func ensureNftRule(family string, table string, chain string, expr string) error {
-	// Ensure table / chain exist (idempotent).
+func ensureNftTable(family string, table string) error {
 	if err := runCombined("nft", "add", "table", family, table); err != nil && !strings.Contains(err.Error(), "File exists") {
+		return err
+	}
+	return nil
+}
+
+func ensureNftBaseChain(family string, table string, chain string, chainType string, hook string, priority int) error {
+	if err := ensureNftTable(family, table); err != nil {
+		return err
+	}
+	args := []string{
+		"add", "chain", family, table, chain,
+		"{", "type", chainType, "hook", hook, "priority", strconv.Itoa(priority), ";", "policy", "accept", ";", "}",
+	}
+	if err := runCombined("nft", args...); err != nil && !strings.Contains(err.Error(), "File exists") {
+		return err
+	}
+	return runCombined("nft", "list", "chain", family, table, chain)
+}
+
+func ensureNftRule(family string, table string, chain string, expr string) error {
+	if err := ensureNftTable(family, table); err != nil {
 		return err
 	}
 	if err := runCombined("nft", "add", "chain", family, table, chain); err != nil && !strings.Contains(err.Error(), "File exists") {
 		return err
 	}
-	checkErr := runCombined("nft", "list", "chain", family, table, chain)
-	if checkErr != nil {
-		return checkErr
+	if err := runCombined("nft", "list", "chain", family, table, chain); err != nil {
+		return err
 	}
 	// Duplicate-safe add: rely on -a list and textual check.
 	out, _ := exec.Command("nft", "-a", "list", "chain", family, table, chain).CombinedOutput()
@@ -153,22 +172,22 @@ func maybeConfigureConnectIPTunManagedNAT(ifName string, cfg ListenConfig) bool 
 			return fmt.Errorf("nft not in PATH: %w", err)
 		}
 		// Use dedicated table/chains to avoid clobbering host rules.
-		if err := ensureNftRule("inet", "masque_connect_ip", "forward", "type filter hook forward priority 0; policy accept;"); err != nil {
+		if err := ensureNftBaseChain("ip", "masque_connect_ip", "forward", "filter", "forward", 0); err != nil {
 			return err
 		}
-		if err := ensureNftRule("ip", "masque_connect_ip", "postrouting", "type nat hook postrouting priority 100; policy accept;"); err != nil {
+		if err := ensureNftBaseChain("ip", "masque_connect_ip", "postrouting", "nat", "postrouting", 100); err != nil {
 			return err
 		}
-		if err := ensureNftRule("ip", "masque_connect_ip", "prerouting", "type filter hook prerouting priority -150; policy accept;"); err != nil {
+		if err := ensureNftBaseChain("ip", "masque_connect_ip", "prerouting", "filter", "prerouting", -150); err != nil {
 			return err
 		}
-		if err := ensureNftRule("ip", "masque_connect_ip", "postrouting_mangle", "type filter hook postrouting priority -150; policy accept;"); err != nil {
+		if err := ensureNftBaseChain("ip", "masque_connect_ip", "postrouting_mangle", "filter", "postrouting", -150); err != nil {
 			return err
 		}
-		if err := ensureNftRule("inet", "masque_connect_ip", "forward", fmt.Sprintf("iifname %q oifname %q accept", ifName, egress)); err != nil {
+		if err := ensureNftRule("ip", "masque_connect_ip", "forward", fmt.Sprintf("iifname %q oifname %q accept", ifName, egress)); err != nil {
 			return err
 		}
-		if err := ensureNftRule("inet", "masque_connect_ip", "forward", fmt.Sprintf("iifname %q oifname %q ct state established,related accept", egress, ifName)); err != nil {
+		if err := ensureNftRule("ip", "masque_connect_ip", "forward", fmt.Sprintf("iifname %q oifname %q ct state established,related accept", egress, ifName)); err != nil {
 			return err
 		}
 		if err := ensureNftRule("ip", "masque_connect_ip", "postrouting", fmt.Sprintf("oifname %q masquerade", egress)); err != nil {

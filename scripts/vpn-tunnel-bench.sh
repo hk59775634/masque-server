@@ -175,8 +175,8 @@ if [[ "${INSTALL_SPEEDTEST}" == "1" ]] && ! command -v speedtest-cli >/dev/null 
 fi
 
 if command -v speedtest-cli >/dev/null 2>&1; then
-  echo "=== speedtest-cli (python; --mini 更快，仍依赖 speedtest.net API) ==="
-  timeout 180 speedtest-cli --simple --mini --timeout 60 || \
+  echo "=== speedtest-cli (python) ==="
+  timeout 180 speedtest-cli --simple --timeout 60 || \
   timeout 180 speedtest-cli --simple --timeout 90 || \
   timeout 180 speedtest-cli --simple || true
 else
