@@ -39,6 +39,7 @@ go run ./cmd/server
 - **扩展 CONNECT**，`:protocol connect-ip`（RFC 9484 形态）；**200** 前与 TCP 相同走控制面 **`/api/v1/server/authorize`**（需 **`Authorization: Bearer <device_token>`** + **`Device-Fingerprint`**），除非下文 **跳过鉴权**。
 - **200** 响应带 **`Capsule-Protocol: ?1`**，流上解析 **RFC 9297** capsule；**RFC 9484** 的 **ROUTE_ADVERTISEMENT** / **ADDRESS_REQUEST** / **ADDRESS_ASSIGN** 等按桩逻辑处理（路由需在设备 ACL 的 `allow[].cidr` 内；**ADDRESS_REQUEST** 应答为文档地址 **192.0.2.1/32**、**2001:db8::1/128** 等，除非客户端请求且通过 ACL 的具体地址）。
 - **HTTP Datagram（RFC 9297）**：在 QUIC 上协商；载荷前导 **QUIC varint Context ID**（**0** 表示后跟完整 **IP 包**）。非零 Context ID 默认丢弃，除非设置 **`CONNECT_IP_STUB_ECHO_CONTEXTS`**（仅开发）。
+- **TUN 转发**（Linux **`CONNECT_IP_TUN_FORWARD`**）：单帧 Datagram 所承载的内层 IP 有上界（当前 **2048 B**，含 Context **0** 前缀），需与 **`CONNECT_IP_TUN_MTU`**（`ip link set mtu`）及可选 **`CONNECT_IP_TUN_MANAGED_NAT`** 下的 **TCPMSS**（**`CONNECT_IP_TUN_TCP_MSS`** 可覆盖）一致，避免大包在隧道上被静默丢弃。
 - 内层若解析为 **IPv4/IPv6**，使用与 **`POST /connect`** 相同的 **`allow` cidr / protocol / port** 做 ACL；通过则默认 **原样回显（echo）** 整帧 Datagram；非 IP 内层按不透明 echo。
 - **不是**内核路由或完整路由器；完整 **TUN/内核转发** 在客户端侧见下节「Linux TUN」。
 
@@ -80,6 +81,7 @@ go run ./cmd/server
 5. **QUIC 与 HTTPS 不同端口** / 能力里未宣告 UDP：脚本会从未设置 **`CONNECT_IP_UDP`** 时，根据 **`masque_server_url` 主机名** 推断 **`主机:8444`**（**`AUTO_CONNECT_IP_UDP_PORT`** 可调，**`AUTO_CONNECT_IP_UDP=0`** 关闭）。服务端仍需 **`QUIC_LISTEN_ADDR`** 在该 UDP 端口监听。
 6. 仅 **Linux**；旧版仅 HTTP **`connect`**：**`LEGACY_CONNECT=1`** 且 **`CONNECT_MODE=dry-run|real`**。
 7. 已有 **`device_token`** 则跳过登录，直接 **`connect-ip-tun`**；**`MASQUE_CLIENT`** 可指向二进制路径。
+8. **激活**阶段对控制面使用 **`curl -4 --max-time 60`**（IPv4-only）；设备指纹随机后缀使用 **`os.urandom`** / **`binascii`**，兼容 **`python3` 3.5**（无 **`secrets`** 的旧发行版）。
 
 ### 依赖能力中的 UDP 地址
 
@@ -120,6 +122,7 @@ sudo go run ./cmd/client connect-ip-tun [-masque-server URL] [-connect-ip-udp ho
 - **`-dns-resolvectl`**（与 **`-dns`** 联用）：走 **`resolvectl dns <默认路由网卡> …`**，退出时 **`resolvectl revert`**（需 **`resolvectl`** 与 **systemd-resolved**；通常仍需 **root**）。适合桌面环境避免直接改 stub **`resolv.conf`**。
 - **`-dns-resolvectl-fallback`**（默认 **`true`**）：**`-dns-resolvectl`** 失败时自动改用 **`/etc/resolv.conf`**（与不加 **`-dns-resolvectl`** 相同）；设为 **`false`** 则 **`resolvectl`** 失败直接退出（强制只用 systemd-resolved 路径）。
 - **`-bypass-masque-host`**（默认 `true`，且仅在启用分段默认路由时生效）：为 **QUIC 目标主机**（及 `-masque-server` 若解析出不同 IPv4）添加 **`/32` 经当前默认网关** 的绕行，避免黑洞。
+- **`-quic-max-idle`** / **`-quic-keepalive`**：CONNECT-IP 的 **QUIC MaxIdleTimeout** 与静默期 **KeepAlive**（默认 **30m** / **15s**），避免 TUN 无流量时 **30s** 默认空闲超时拆会话。**`-connect-ip-udp`** 若为主机名，客户端仅做 **IPv4（A 记录）** 解析后再拨号。
 - 默认服务端仍为 **echo 桩**；若开启 **`CONNECT_IP_UDP_RELAY`** / **`CONNECT_IP_ICMP_RELAY`**，则 **IPv4 UDP**（如 DNS）或 **ping** 可走真实应答，便于联调。
 - **masque-server（Linux）**：**`CONNECT_IP_TUN_FORWARD=1`** 时，每个 CONNECT-IP 会话打开一个 **host TUN**，将 ACL 允许的 **Context 0 IP** 写入 TUN，并从 TUN 读回包发给客户端（**`CONNECT_IP_TUN_NAME`** 可选，对应 TUNSETIFF）。可选 **`CONNECT_IP_TUN_LINK_UP=1`**：每次 TUN 打开成功后执行 **`ip link set dev <if> up`**（需 **`PATH` 中有 `ip`**，通常 **`CAP_NET_ADMIN`**）。**`net.ipv4.ip_forward`** 与 **SNAT**（如 **`iptables -t nat MASQUERADE`**）仍由运维配置，进程内不执行。
 - 非 Linux 平台编译出的二进制执行该子命令会提示仅支持 Linux。

@@ -62,7 +62,8 @@ if [[ -f "${FP_FILE}" ]]; then
 	FINGERPRINT="$(tr -d '\r\n' < "${FP_FILE}")"
 	[[ -n "${FINGERPRINT}" ]] || die "empty ${FP_FILE}"
 else
-	FINGERPRINT="fp-$(hostname)-$(python3 -c 'import secrets; print(secrets.token_hex(8))')"
+	# secrets.token_hex needs Python 3.6+; older distros only have 3.5. Use os.urandom (3.3+).
+	FINGERPRINT="fp-$(hostname)-$(python3 -c 'import binascii, os; print(binascii.hexlify(os.urandom(8)).decode("ascii"))')"
 	printf '%s\n' "${FINGERPRINT}" > "${FP_FILE}"
 	chmod 600 "${FP_FILE}"
 	echo "[quick] wrote new device fingerprint to ${FP_FILE}"
@@ -99,7 +100,7 @@ print(json.dumps({"email": email, "password": password, "fingerprint": fp, "devi
 ' "${EMAIL}" "${PASSWORD}" "${FINGERPRINT}" "${DEVICE_NAME}" > "${TMP_BODY}"
 
 	URL="${CP}/api/v1/devices/activation-code-with-credentials"
-	HTTP_CODE="$(curl -sS -o /tmp/masque-quick-code.json -w '%{http_code}' \
+	HTTP_CODE="$(curl -4 -sS --max-time 60 -o /tmp/masque-quick-code.json -w '%{http_code}' \
 		-X POST "${URL}" \
 		-H 'Accept: application/json' \
 		-H 'Content-Type: application/json' \
