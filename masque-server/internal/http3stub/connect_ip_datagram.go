@@ -12,7 +12,10 @@ import (
 )
 
 // maxConnectIPDatagramBytes bounds echo and relay payload size (stub; not a production router).
-const maxConnectIPDatagramBytes = 1200
+// Must fit a full inner IPv4 packet after NAT forward (often ~1500 B on Ethernet) plus RFC 9484
+// Context-ID prefix (varint 0 → 1 B). 1200 was too small: TUN MTU 1280 and return-path TCP segments
+// were dropped, breaking flows like curl -L after the first redirect hop.
+const maxConnectIPDatagramBytes = 2048
 
 // processInboundConnectIPDatagram handles one inbound HTTP datagram: metrics, RFC 9484 peel, ACL, optional
 // IPv4 UDP/ICMP relay. If tun is nil, allowed packets are echoed. If tun is non-nil, allowed IP-shaped packets
@@ -172,6 +175,7 @@ func runConnectIPDatagramEchoLoop(ctx context.Context, str *http3.Stream, cfg Li
 			if !maybeBringUpConnectIPTun(tunName, cfg.ConnectIPTunLinkUp) && cfg.ConnectIPTunLinkUpFailures != nil {
 				cfg.ConnectIPTunLinkUpFailures.Inc()
 			}
+			_ = maybeSetConnectIPTunMTU(tunName)
 			if !maybeConfigureConnectIPTunManagedNAT(tunName, cfg) {
 				if cfg.ConnectIPTunOpenEchoFallbacks != nil {
 					cfg.ConnectIPTunOpenEchoFallbacks.Inc()

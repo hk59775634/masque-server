@@ -5,7 +5,9 @@ package http3stub
 import (
 	"fmt"
 	"log"
+	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 )
 
@@ -30,10 +32,32 @@ func ensureIptablesRule(table string, ruleArgs ...string) error {
 	switch {
 	case table == "nat":
 		addArgs = append([]string{"-t", "nat", "-A"}, ruleArgs...)
+	case table == "mangle":
+		addArgs = append([]string{"-t", "mangle", "-A"}, ruleArgs...)
 	default:
 		addArgs = append([]string{"-A"}, ruleArgs...)
 	}
 	return runCombined("iptables", addArgs...)
+}
+
+func connectIPTunClampMSS() int {
+	if s := strings.TrimSpace(os.Getenv("CONNECT_IP_TUN_TCP_MSS")); s != "" {
+		n, err := strconv.Atoi(s)
+		if err == nil && n >= 536 && n <= 1460 {
+			return n
+		}
+		log.Printf("connect-ip: CONNECT_IP_TUN_TCP_MSS=%q invalid; using MTU-derived MSS", s)
+	}
+	if s := strings.TrimSpace(os.Getenv("CONNECT_IP_TUN_MTU")); s != "" {
+		mtu, err := strconv.Atoi(s)
+		if err == nil && mtu >= 576 {
+			mss := mtu - 40
+			if mss >= 536 {
+				return mss
+			}
+		}
+	}
+	return 1240 // 1280 MTU − 40 B IP+TCP headers (common VPN/tunnel padding)
 }
 
 func maybeConfigureConnectIPTunManagedNAT(ifName string, cfg ListenConfig) bool {
@@ -84,7 +108,15 @@ func maybeConfigureConnectIPTunManagedNAT(ifName string, cfg ListenConfig) bool 
 	if err := ensureIptablesRule("nat", "POSTROUTING", "-o", egress, "-j", "MASQUERADE"); err != nil {
 		return fail(err)
 	}
+	mss := connectIPTunClampMSS()
+	// MSS clamp on traffic touching the TUN (local termination + forwarded): avoids SYN-ACK advertising 1460 on a 1280 path.
+	if err := ensureIptablesRule("mangle", "PREROUTING", "-i", ifName, "-p", "tcp", "-m", "tcp", "--tcp-flags", "SYN,RST", "SYN", "-j", "TCPMSS", "--set-mss", strconv.Itoa(mss)); err != nil {
+		return fail(err)
+	}
+	if err := ensureIptablesRule("mangle", "POSTROUTING", "-o", ifName, "-p", "tcp", "-m", "tcp", "--tcp-flags", "SYN,RST", "SYN", "-j", "TCPMSS", "--set-mss", strconv.Itoa(mss)); err != nil {
+		return fail(err)
+	}
 	mark("ok")
-	log.Printf("connect-ip: managed NAT applied on %s (egress=%s addr=%q)", ifName, egress, strings.TrimSpace(cfg.ConnectIPTunAddressCIDR))
+	log.Printf("connect-ip: managed NAT applied on %s (egress=%s addr=%q tcp_mss=%d)", ifName, egress, strings.TrimSpace(cfg.ConnectIPTunAddressCIDR), mss)
 	return true
 }

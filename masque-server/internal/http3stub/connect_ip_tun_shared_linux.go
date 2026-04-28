@@ -69,6 +69,7 @@ func getOrCreateSharedTunManager(cfg ListenConfig) (*sharedTunManager, error) {
 	if !maybeBringUpConnectIPTun(ifName, cfg.ConnectIPTunLinkUp) && cfg.ConnectIPTunLinkUpFailures != nil {
 		cfg.ConnectIPTunLinkUpFailures.Inc()
 	}
+	_ = maybeSetConnectIPTunMTU(ifName)
 	if !maybeConfigureConnectIPTunManagedNAT(ifName, cfg) {
 		_ = tun.Close()
 		return nil, fmt.Errorf("managed NAT apply failed on shared TUN %s", ifName)

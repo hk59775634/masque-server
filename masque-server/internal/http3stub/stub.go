@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"afbuyers/masque-server/internal/capabilities"
+	"github.com/quic-go/quic-go"
 	"github.com/quic-go/quic-go/http3"
 )
 
@@ -47,6 +48,11 @@ func Listen(cfg ListenConfig) error {
 		Addr:            addr,
 		Handler:         newHandler(cfg),
 		TLSConfig:       tlsConf,
+		// Align with VPN-style CONNECT-IP clients: negotiated idle timeout is min(client, server).
+		QUICConfig: &quic.Config{
+			EnableDatagrams: true,
+			MaxIdleTimeout:  30 * time.Minute,
+		},
 		EnableDatagrams: true, // RFC 9297; required path for CONNECT-IP payloads once relay exists
 	}
 
