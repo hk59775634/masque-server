@@ -38,6 +38,16 @@ var (
 	sharedTun   *sharedTunManager
 )
 
+// EnsureConnectIPSharedTunReady eagerly creates the shared TUN manager so the
+// host interface exists before the first CONNECT-IP stream arrives.
+func EnsureConnectIPSharedTunReady(cfg ListenConfig) error {
+	if !cfg.ConnectIPTunForward || !cfg.ConnectIPTunShared {
+		return nil
+	}
+	_, err := getOrCreateSharedTunManager(cfg)
+	return err
+}
+
 func getOrCreateSharedTunManager(cfg ListenConfig) (*sharedTunManager, error) {
 	sharedTunMu.Lock()
 	defer sharedTunMu.Unlock()

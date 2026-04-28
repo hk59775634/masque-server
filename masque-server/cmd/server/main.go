@@ -320,6 +320,11 @@ func main() {
 			if connectIPTunShared {
 				log.Printf("CONNECT_IP_TUN_SHARED: all CONNECT-IP streams share one host TUN; return packets are demuxed by destination IP (binding_ttl=%s)", connectIPTunSharedBindingTTL)
 			}
+			if err := http3stub.EnsureConnectIPSharedTunReady(cfg); err != nil {
+				log.Printf("CONNECT_IP_TUN_SHARED eager init failed: %v", err)
+			} else if connectIPTunForward && connectIPTunShared {
+				log.Printf("CONNECT_IP_TUN_SHARED eager init OK (interface pre-created before first session)")
+			}
 			if err := http3stub.Listen(cfg); err != nil {
 				log.Printf("QUIC HTTP/3 stub: %v", err)
 			}
