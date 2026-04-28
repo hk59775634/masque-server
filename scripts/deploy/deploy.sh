@@ -13,7 +13,15 @@ mkdir -p "${RELEASES_DIR}"
 
 if [[ "${DEPLOY_DATAPLANE_PREFLIGHT:-1}" == "1" ]]; then
 	echo "[deploy] dataplane preflight checks..."
-	bash "${ROOT_DIR}/scripts/deploy/dataplane-preflight.sh" "deploy"
+	PREFLIGHT_LOG_DIR="${DEPLOY_PREFLIGHT_LOG_DIR:-${ROOT_DIR}/logs/deploy}"
+	mkdir -p "${PREFLIGHT_LOG_DIR}"
+	PREFLIGHT_LOG="${PREFLIGHT_LOG_DIR}/preflight-${TIMESTAMP}.log"
+	if bash "${ROOT_DIR}/scripts/deploy/dataplane-preflight.sh" "deploy" 2>&1 | tee "${PREFLIGHT_LOG}"; then
+		echo "[deploy] preflight log saved: ${PREFLIGHT_LOG}"
+	else
+		echo "[deploy] preflight failed; see ${PREFLIGHT_LOG}" >&2
+		exit 1
+	fi
 fi
 
 echo "[deploy] creating release: ${NEW_RELEASE}"

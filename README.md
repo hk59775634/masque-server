@@ -130,6 +130,7 @@ Current Alertmanager webhook target is:
 - Deploy: `./scripts/deploy/deploy.sh staging` (optional Go build into `releases/<ts>/bin/`, same ldflags as CI; `BUILD_GO=0` to skip)
 - Rollback: `./scripts/deploy/rollback.sh`
 - Dataplane preflight (enabled by default): deploy/rollback run `scripts/deploy/dataplane-preflight.sh` to check `ip`, `sysctl`, `nft`/`iptables`, `/dev/net/tun`, and current `masque-server` environment. Disable with `DEPLOY_DATAPLANE_PREFLIGHT=0` or `ROLLBACK_DATAPLANE_PREFLIGHT=0`.
+- Preflight logs are archived to `logs/deploy/preflight-<timestamp>.log` (deploy) and `logs/deploy/rollback-preflight-<timestamp>.log` (rollback). Override paths with `DEPLOY_PREFLIGHT_LOG_DIR` / `ROLLBACK_PREFLIGHT_LOG_DIR`.
 
 These are safe skeletons. Customize the service restart section for your production runtime.
 

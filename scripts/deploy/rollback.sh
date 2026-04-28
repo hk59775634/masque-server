@@ -4,10 +4,19 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 RELEASES_DIR="${ROOT_DIR}/releases"
 CURRENT_LINK="${ROOT_DIR}/current"
+TIMESTAMP="$(date +%Y%m%d%H%M%S)"
 
 if [[ "${ROLLBACK_DATAPLANE_PREFLIGHT:-1}" == "1" ]]; then
   echo "[rollback] dataplane preflight checks..."
-  bash "${ROOT_DIR}/scripts/deploy/dataplane-preflight.sh" "rollback"
+  PREFLIGHT_LOG_DIR="${ROLLBACK_PREFLIGHT_LOG_DIR:-${ROOT_DIR}/logs/deploy}"
+  mkdir -p "${PREFLIGHT_LOG_DIR}"
+  PREFLIGHT_LOG="${PREFLIGHT_LOG_DIR}/rollback-preflight-${TIMESTAMP}.log"
+  if bash "${ROOT_DIR}/scripts/deploy/dataplane-preflight.sh" "rollback" 2>&1 | tee "${PREFLIGHT_LOG}"; then
+    echo "[rollback] preflight log saved: ${PREFLIGHT_LOG}"
+  else
+    echo "[rollback] preflight failed; see ${PREFLIGHT_LOG}" >&2
+    exit 1
+  fi
 fi
 
 if [[ ! -d "${RELEASES_DIR}" ]]; then
