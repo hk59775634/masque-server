@@ -81,7 +81,14 @@ func main() {
 	connectIPTunName := strings.TrimSpace(os.Getenv("CONNECT_IP_TUN_NAME"))
 	connectIPTunLinkUp := isTruthyEnv("CONNECT_IP_TUN_LINK_UP") && connectIPTunForward
 	connectIPTunManagedNAT := isTruthyEnv("CONNECT_IP_TUN_MANAGED_NAT") && connectIPTunForward
-	connectIPTunShared := isTruthyEnv("CONNECT_IP_TUN_SHARED") && connectIPTunForward
+	connectIPTunShared := connectIPTunForward
+	if rawShared := strings.TrimSpace(os.Getenv("CONNECT_IP_TUN_SHARED")); rawShared != "" {
+		if b, ok := parseBoolEnvValue(rawShared); ok {
+			connectIPTunShared = b && connectIPTunForward
+		} else {
+			log.Printf("CONNECT_IP_TUN_SHARED=%q invalid; using default=%v", rawShared, connectIPTunShared)
+		}
+	}
 	connectIPTunSharedBindingTTL := 5 * time.Minute
 	if raw := strings.TrimSpace(os.Getenv("CONNECT_IP_TUN_SHARED_BINDING_TTL")); raw != "" {
 		if d, err := time.ParseDuration(raw); err == nil {
@@ -92,6 +99,29 @@ func main() {
 	}
 	connectIPTunEgressIF := strings.TrimSpace(os.Getenv("CONNECT_IP_TUN_EGRESS_IFACE"))
 	connectIPTunAddrCIDR := strings.TrimSpace(os.Getenv("CONNECT_IP_TUN_ADDR_CIDR"))
+	connectIPTunManagedNATBackend := "nftables"
+	if raw := strings.TrimSpace(strings.ToLower(os.Getenv("CONNECT_IP_TUN_NAT_BACKEND"))); raw != "" {
+		switch raw {
+		case "nft", "nftables":
+			connectIPTunManagedNATBackend = "nftables"
+		case "iptables":
+			connectIPTunManagedNATBackend = "iptables"
+		default:
+			log.Printf("CONNECT_IP_TUN_NAT_BACKEND=%q invalid; using nftables", raw)
+		}
+	}
+	connectIPTunManagedNATFallback := true
+	if rawFallback := strings.TrimSpace(os.Getenv("CONNECT_IP_TUN_NAT_FALLBACK_IPTABLES")); rawFallback != "" {
+		if b, ok := parseBoolEnvValue(rawFallback); ok {
+			connectIPTunManagedNATFallback = b
+		} else {
+			log.Printf("CONNECT_IP_TUN_NAT_FALLBACK_IPTABLES=%q invalid; using default=true", rawFallback)
+		}
+	}
+	if connectIPTunManagedNAT && connectIPTunEgressIF == "" {
+		log.Printf("CONNECT_IP_TUN_MANAGED_NAT is enabled but CONNECT_IP_TUN_EGRESS_IFACE is empty; disabling managed NAT to avoid repeated apply failures")
+		connectIPTunManagedNAT = false
+	}
 	capParams := capabilities.Params{
 		Version:                      version,
 		TCPListenAddr:                listenAddr,
@@ -104,6 +134,7 @@ func main() {
 		ConnectIPTunKernelForward:    connectIPTunForward,
 		ConnectIPTunLinkUp:           connectIPTunLinkUp,
 		ConnectIPTunManagedNAT:       connectIPTunManagedNAT,
+		ConnectIPTunManagedNATBackend: connectIPTunManagedNATBackend,
 		ConnectIPTunShared:           connectIPTunShared,
 	}
 
@@ -283,10 +314,14 @@ func main() {
 				ConnectIPTunLinkUp:                      connectIPTunLinkUp,
 				ConnectIPTunLinkUpFailures:              metrics.connectIPTunLinkUpFailures,
 				ConnectIPTunManagedNAT:                  connectIPTunManagedNAT,
+				ConnectIPTunManagedNATBackend:           connectIPTunManagedNATBackend,
+				ConnectIPTunManagedNATAllowIPTablesFallback: connectIPTunManagedNATFallback,
 				ConnectIPTunEgressInterface:             connectIPTunEgressIF,
 				ConnectIPTunAddressCIDR:                 connectIPTunAddrCIDR,
 				ConnectIPTunManagedNATApplyResults:      metrics.connectIPTunManagedNATApply,
+				ConnectIPTunManagedNATBackendResults:    metrics.connectIPTunManagedNATBackend,
 				ConnectIPTunSharedBindingConflicts:      metrics.connectIPTunSharedConflicts,
+				ConnectIPTunSharedBindingConflictReasons: metrics.connectIPTunSharedConflictReason,
 				ConnectIPTunSharedBindingStaleEvictions: metrics.connectIPTunSharedStaleEvictions,
 				ConnectIPTunSharedBindingTTL:            connectIPTunSharedBindingTTL,
 			}
@@ -309,13 +344,13 @@ func main() {
 				log.Printf("CONNECT_IP_ROUTE_ADV_CIDR=%s: server may push ROUTE_ADVERTISEMENT after 200 when ACL covers the range", connectIPRouteAdvCIDR)
 			}
 			if connectIPTunForward {
-				log.Printf("CONNECT_IP_TUN_FORWARD: per-session host TUN bridge (CONNECT_IP_TUN_NAME=%q); sysctl net.ipv4.ip_forward and iptables SNAT (e.g. MASQUERADE) are operator-managed, not applied by masque-server", connectIPTunName)
+				log.Printf("CONNECT_IP_TUN_FORWARD: per-session host TUN bridge (CONNECT_IP_TUN_NAME=%q); host routing/SNAT remains operator-managed unless CONNECT_IP_TUN_MANAGED_NAT is enabled", connectIPTunName)
 			}
 			if connectIPTunLinkUp {
 				log.Printf("CONNECT_IP_TUN_LINK_UP: will run `ip link set dev <tun> up` after each successful TUN open (requires ip(8) and typically CAP_NET_ADMIN)")
 			}
 			if connectIPTunManagedNAT {
-				log.Printf("CONNECT_IP_TUN_MANAGED_NAT: will apply ip_forward/iptables for each session TUN (egress=%q, tun_addr=%q)", connectIPTunEgressIF, connectIPTunAddrCIDR)
+				log.Printf("CONNECT_IP_TUN_MANAGED_NAT: will apply ip_forward/NAT automation for each session TUN (backend=%s fallback_iptables=%v egress=%q tun_addr=%q)", connectIPTunManagedNATBackend, connectIPTunManagedNATFallback, connectIPTunEgressIF, connectIPTunAddrCIDR)
 			}
 			if connectIPTunShared {
 				log.Printf("CONNECT_IP_TUN_SHARED: all CONNECT-IP streams share one host TUN; return packets are demuxed by destination IP (binding_ttl=%s)", connectIPTunSharedBindingTTL)
@@ -363,6 +398,17 @@ func isTruthyEnv(key string) bool {
 	}
 }
 
+func parseBoolEnvValue(v string) (bool, bool) {
+	switch strings.TrimSpace(strings.ToLower(v)) {
+	case "1", "true", "yes", "on":
+		return true, true
+	case "0", "false", "no", "off":
+		return false, true
+	default:
+		return false, false
+	}
+}
+
 func writeJSON(w http.ResponseWriter, code int, payload any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
@@ -405,7 +451,9 @@ type serverMetrics struct {
 	connectIPTunOpenEchoFallbacks    prometheus.Counter
 	connectIPTunLinkUpFailures       prometheus.Counter
 	connectIPTunManagedNATApply      *prometheus.CounterVec
+	connectIPTunManagedNATBackend    *prometheus.CounterVec
 	connectIPTunSharedConflicts      prometheus.Counter
+	connectIPTunSharedConflictReason *prometheus.CounterVec
 	connectIPTunSharedStaleEvictions prometheus.Counter
 	healthChecksTotal                prometheus.Counter
 }
@@ -523,10 +571,18 @@ func newServerMetrics(registry *prometheus.Registry) *serverMetrics {
 			Name: "masque_connect_ip_tun_managed_nat_apply_total",
 			Help: "CONNECT_IP_TUN_MANAGED_NAT apply outcomes (result label).",
 		}, []string{"result"}),
+		connectIPTunManagedNATBackend: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "masque_connect_ip_tun_managed_nat_backend_total",
+			Help: "CONNECT_IP_TUN_MANAGED_NAT backend outcomes by backend and result.",
+		}, []string{"backend", "result"}),
 		connectIPTunSharedConflicts: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "masque_connect_ip_tun_shared_binding_conflicts_total",
 			Help: "Shared TUN source-IP binding ownership changes across sessions.",
 		}),
+		connectIPTunSharedConflictReason: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "masque_connect_ip_tun_shared_binding_conflict_reasons_total",
+			Help: "Shared TUN source-IP binding conflict reasons.",
+		}, []string{"reason"}),
 		connectIPTunSharedStaleEvictions: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "masque_connect_ip_tun_shared_binding_stale_evictions_total",
 			Help: "Shared TUN source-IP bindings evicted by TTL.",
@@ -565,7 +621,9 @@ func newServerMetrics(registry *prometheus.Registry) *serverMetrics {
 		m.connectIPTunOpenEchoFallbacks,
 		m.connectIPTunLinkUpFailures,
 		m.connectIPTunManagedNATApply,
+		m.connectIPTunManagedNATBackend,
 		m.connectIPTunSharedConflicts,
+		m.connectIPTunSharedConflictReason,
 		m.connectIPTunSharedStaleEvictions,
 		m.healthChecksTotal,
 	)

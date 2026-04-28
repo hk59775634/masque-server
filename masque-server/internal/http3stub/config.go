@@ -111,14 +111,22 @@ type ListenConfig struct {
 	// ConnectIPTunManagedNAT (Linux): apply host forwarding/NAT automation for CONNECT-IP TUN
 	// (ip_forward=1, optional `ip addr replace`, FORWARD accepts, POSTROUTING MASQUERADE).
 	ConnectIPTunManagedNAT bool
+	// ConnectIPTunManagedNATBackend picks rule backend: "nftables" (preferred) or "iptables".
+	ConnectIPTunManagedNATBackend string
+	// ConnectIPTunManagedNATAllowIPTablesFallback allows nftables -> iptables fallback on apply failure.
+	ConnectIPTunManagedNATAllowIPTablesFallback bool
 	// ConnectIPTunEgressInterface is required when ConnectIPTunManagedNAT=true.
 	ConnectIPTunEgressInterface string
 	// ConnectIPTunAddressCIDR optionally assigns an address/prefix to the TUN via `ip addr replace <cidr> dev <if>`.
 	ConnectIPTunAddressCIDR string
 	// ConnectIPTunManagedNATApplyResults counts managed NAT apply outcomes (result=ok|error).
 	ConnectIPTunManagedNATApplyResults *prometheus.CounterVec
+	// ConnectIPTunManagedNATBackendResults counts backend attempts/outcomes (backend=nftables|iptables, result=ok|error|fallback).
+	ConnectIPTunManagedNATBackendResults *prometheus.CounterVec
 	// ConnectIPTunSharedBindingConflicts counts source-IP ownership changes across sessions in shared TUN mode.
 	ConnectIPTunSharedBindingConflicts prometheus.Counter
+	// ConnectIPTunSharedBindingConflictReasons counts conflict reasons in shared TUN mode (reason=active_reassign|stale_reassign).
+	ConnectIPTunSharedBindingConflictReasons *prometheus.CounterVec
 	// ConnectIPTunSharedBindingStaleEvictions counts stale source-IP bindings evicted by TTL in shared TUN mode.
 	ConnectIPTunSharedBindingStaleEvictions prometheus.Counter
 	// ConnectIPTunSharedBindingTTL controls stale binding eviction for shared TUN mode; when <=0, default is 5m.

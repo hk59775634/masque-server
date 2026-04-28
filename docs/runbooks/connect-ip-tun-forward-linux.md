@@ -1,14 +1,15 @@
 # CONNECT-IP host TUN bridge (Linux) — operator notes
 
-masque-server can set **`CONNECT_IP_TUN_FORWARD=1`** so each CONNECT-IP session opens a **host TUN** and bridges **RFC 9484 Context ID 0** IP datagrams to that interface after ACL (and after optional UDP/ICMP relay). The process does **not** enable **`net.ipv4.ip_forward`** or add **`iptables` NAT**.
+masque-server can set **`CONNECT_IP_TUN_FORWARD=1`** so each CONNECT-IP session opens a **host TUN** and bridges **RFC 9484 Context ID 0** IP datagrams to that interface after ACL (and after optional UDP/ICMP relay). By default this is forwarding-only; with **`CONNECT_IP_TUN_MANAGED_NAT=1`** it can apply host networking automation.
 
 Optional **`CONNECT_IP_TUN_LINK_UP=1`** (with **`CONNECT_IP_TUN_FORWARD`**): after each successful TUN open, masque-server runs **`ip link set dev <ifname> up`** (best-effort; requires **`ip`** on **`PATH`** and usually **`CAP_NET_ADMIN`**). This does not replace full routing/SNAT setup below.
 
 Optional **`CONNECT_IP_TUN_MANAGED_NAT=1`** (with **`CONNECT_IP_TUN_FORWARD`**): masque-server applies minimal host networking automation on each session TUN:
 - `sysctl -w net.ipv4.ip_forward=1`
 - optional `ip addr replace <CONNECT_IP_TUN_ADDR_CIDR> dev <tun>`
-- `iptables` FORWARD accept rules between `<tun>` and **`CONNECT_IP_TUN_EGRESS_IFACE`**
-- `iptables -t nat POSTROUTING -o <egress> -j MASQUERADE`
+- managed FORWARD/MASQUERADE/TCPMSS rules (backend from **`CONNECT_IP_TUN_NAT_BACKEND`**; default `nftables`, optional `iptables`)
+
+Optional **`CONNECT_IP_TUN_NAT_FALLBACK_IPTABLES=1`** (default on): when backend is `nftables`, failed apply can fall back to iptables.
 
 This is a minimal bootstrap, not a full firewall policy manager. Existing host security controls remain your responsibility.
 
@@ -47,7 +48,9 @@ sudo iptables -t nat -A POSTROUTING -o <wan> -j MASQUERADE
 - **`masque_connect_ip_tun_open_echo_fallback_total`**: counter — **`CONNECT_IP_TUN_FORWARD`** was on but **`openConnectIPTunForward`** failed (permission, missing `/dev/net/tun`, etc.); the stream used **echo** instead.
 - **`masque_connect_ip_tun_link_up_failures_total`**: counter — **`CONNECT_IP_TUN_LINK_UP`** attempted `ip link set up` but failed (`ip` missing in `PATH`, insufficient capabilities, invalid interface state/name, etc.).
 - **`masque_connect_ip_tun_managed_nat_apply_total{result}`**: countervec — managed NAT apply outcomes (`ok` or `error`).
+- **`masque_connect_ip_tun_managed_nat_backend_total{backend,result}`**: countervec — backend-level outcomes (`backend=nftables|iptables`, `result=ok|error|fallback`).
 - **`masque_connect_ip_tun_shared_binding_conflicts_total`**: counter — shared-mode source-IP ownership changes across sessions.
+- **`masque_connect_ip_tun_shared_binding_conflict_reasons_total{reason}`**: countervec — conflict reasons (`active_reassign` or `stale_reassign`).
 - **`masque_connect_ip_tun_shared_binding_stale_evictions_total`**: counter — stale source-IP bindings evicted by TTL GC.
 
 Grafana **`ops/observability/grafana/dashboards/masque-overview.json`** includes panels for both series.
@@ -58,7 +61,9 @@ Prometheus rules in `ops/observability/prometheus/alerts.yml`:
 - **`MasqueConnectIPTunOpenEchoFallback`**: fallback counter rate above zero for 10 minutes.
 - **`MasqueConnectIPTunLinkUpFailures`**: link-up failure counter rate above zero for 10 minutes.
 - **`MasqueConnectIPTunManagedNATApplyErrors`**: managed NAT apply error rate above zero for 10 minutes.
+- **`MasqueConnectIPTunManagedNATNftFallback`**: nftables apply fallback-to-iptables rate above zero for 10 minutes.
 - **`MasqueConnectIPTunSharedBindingConflictsHigh`**: shared-mode binding conflict rate above `0.1/s` for 10 minutes.
+- **`MasqueConnectIPTunSharedBindingActiveReassignHigh`**: active reassign conflict rate above `0.05/s` for 10 minutes.
 
 Both set annotation **`runbook_url`** to this document (GitHub `blob/main` URL in-repo; override in forks if needed). **Alertmanager** forwards annotations to receivers (see `ops/observability/alertmanager/alertmanager.yml` header comment).
 

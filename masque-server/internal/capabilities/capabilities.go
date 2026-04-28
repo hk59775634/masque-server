@@ -19,6 +19,8 @@ type Params struct {
 	ConnectIPTunLinkUp bool
 	// ConnectIPTunManagedNAT: CONNECT_IP_TUN_MANAGED_NAT with TUN forward — server applies minimal ip_forward/iptables automation.
 	ConnectIPTunManagedNAT bool
+	// ConnectIPTunManagedNATBackend: preferred managed NAT rule backend (nftables or iptables).
+	ConnectIPTunManagedNATBackend string
 	// ConnectIPTunShared: CONNECT_IP_TUN_SHARED with TUN forward — multiple streams share one TUN and demux by destination IP.
 	ConnectIPTunShared bool
 }
@@ -47,7 +49,11 @@ func Build(p Params) map[string]any {
 				dgNote += " CONNECT_IP_TUN_LINK_UP: ip link set dev <tun> up after each successful TUN open (best-effort)."
 			}
 			if p.ConnectIPTunManagedNAT {
-				dgNote += " CONNECT_IP_TUN_MANAGED_NAT: server applies minimal ip_forward/iptables MASQUERADE automation (requires operator egress interface config)."
+				backend := strings.TrimSpace(p.ConnectIPTunManagedNATBackend)
+				if backend == "" {
+					backend = "nftables"
+				}
+				dgNote += " CONNECT_IP_TUN_MANAGED_NAT: server applies minimal ip_forward/NAT automation (backend=" + backend + ", requires operator egress interface config)."
 			}
 			if p.ConnectIPTunShared {
 				dgNote += " CONNECT_IP_TUN_SHARED: streams share one host TUN with destination-IP demux."
@@ -71,6 +77,7 @@ func Build(p Params) map[string]any {
 			}
 			if p.ConnectIPTunManagedNAT {
 				http3dg["tun_linux_managed_nat"] = true
+				http3dg["tun_linux_managed_nat_backend"] = strings.TrimSpace(p.ConnectIPTunManagedNATBackend)
 			}
 			if p.ConnectIPTunShared {
 				http3dg["tun_linux_shared"] = true
@@ -142,8 +149,9 @@ func Build(p Params) map[string]any {
 				"route_adv_push_env":  "CONNECT_IP_ROUTE_ADV_CIDR=<ipv4/cidr>: optional; server sends one ROUTE_ADVERTISEMENT after 200 when the inclusive range fits device ACL (same rule as inbound routes)",
 				"tun_forward_env":     "CONNECT_IP_TUN_FORWARD=1|true|yes|on (Linux only): per-session TUN for ACL-allowed IP datagrams; CONNECT_IP_TUN_NAME optional (TUNSETIFF); requires /dev/net/tun (typically root). SNAT (e.g. iptables MASQUERADE) and ip_forward are not applied by masque-server.",
 				"tun_link_up_env":     "CONNECT_IP_TUN_LINK_UP=1|true|yes|on (Linux, requires CONNECT_IP_TUN_FORWARD): after each successful TUN open, run ip link set dev <ifname> up (best-effort log on failure; needs ip(8) in PATH and CAP_NET_ADMIN).",
-				"tun_managed_nat_env": "CONNECT_IP_TUN_MANAGED_NAT=1|true|yes|on (Linux, requires CONNECT_IP_TUN_FORWARD): apply net.ipv4.ip_forward=1 and iptables FORWARD/MASQUERADE rules. Requires CONNECT_IP_TUN_EGRESS_IFACE; optional CONNECT_IP_TUN_ADDR_CIDR for ip addr replace.",
-				"tun_shared_env":      "CONNECT_IP_TUN_SHARED=1|true|yes|on (Linux, requires CONNECT_IP_TUN_FORWARD): share one host TUN across streams and demux by destination IP learned from inbound source IPs.",
+				"tun_managed_nat_env": "CONNECT_IP_TUN_MANAGED_NAT=1|true|yes|on (Linux, requires CONNECT_IP_TUN_FORWARD): apply net.ipv4.ip_forward=1 and managed FORWARD/MASQUERADE/TCPMSS rules. Requires CONNECT_IP_TUN_EGRESS_IFACE; optional CONNECT_IP_TUN_ADDR_CIDR for ip addr replace.",
+				"tun_nat_backend_env": "CONNECT_IP_TUN_NAT_BACKEND=nftables|iptables (default nftables). CONNECT_IP_TUN_NAT_FALLBACK_IPTABLES=1 enables nft->iptables fallback.",
+				"tun_shared_env":      "CONNECT_IP_TUN_SHARED=1|true|yes|on (Linux, requires CONNECT_IP_TUN_FORWARD; default on): share one host TUN across streams and demux by destination IP learned from inbound source IPs.",
 				"tun_shared_ttl_env":  "CONNECT_IP_TUN_SHARED_BINDING_TTL=<duration> (default 5m): stale source-IP binding eviction window in shared TUN mode.",
 			},
 		}

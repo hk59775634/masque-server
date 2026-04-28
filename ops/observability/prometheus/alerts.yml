@@ -105,7 +105,19 @@ groups:
           service: masque-server
         annotations:
           summary: "CONNECT-IP managed NAT automation apply failed"
-          description: "CONNECT_IP_TUN_MANAGED_NAT is enabled but ip_forward/iptables automation is failing (check CONNECT_IP_TUN_EGRESS_IFACE, iptables availability, and privileges)."
+          description: "CONNECT_IP_TUN_MANAGED_NAT is enabled but managed NAT automation is failing (check CONNECT_IP_TUN_EGRESS_IFACE, nft/iptables availability, and privileges)."
+          runbook_url: "https://github.com/afbuyers/masque-server/blob/main/docs/runbooks/connect-ip-tun-forward-linux.md"
+
+      - alert: MasqueConnectIPTunManagedNATNftFallback
+        expr: |
+          sum(rate(masque_connect_ip_tun_managed_nat_backend_total{backend="nftables",result="fallback"}[5m])) > 0
+        for: 10m
+        labels:
+          severity: warning
+          service: masque-server
+        annotations:
+          summary: "CONNECT-IP managed NAT is falling back from nftables to iptables"
+          description: "nftables apply is failing and CONNECT_IP_TUN_NAT_FALLBACK_IPTABLES is masking it via iptables fallback; check nft binary availability and host nft ruleset permissions."
           runbook_url: "https://github.com/afbuyers/masque-server/blob/main/docs/runbooks/connect-ip-tun-forward-linux.md"
 
       - alert: MasqueConnectIPTunSharedBindingConflictsHigh
@@ -118,4 +130,16 @@ groups:
         annotations:
           summary: "CONNECT-IP shared TUN IP-binding conflicts are high"
           description: "Shared TUN source-IP ownership is frequently changing across sessions; check overlapping client addressing and binding TTL."
+          runbook_url: "https://github.com/afbuyers/masque-server/blob/main/docs/runbooks/connect-ip-tun-forward-linux.md"
+
+      - alert: MasqueConnectIPTunSharedBindingActiveReassignHigh
+        expr: |
+          sum(rate(masque_connect_ip_tun_shared_binding_conflict_reasons_total{reason="active_reassign"}[5m])) > 0.05
+        for: 10m
+        labels:
+          severity: warning
+          service: masque-server
+        annotations:
+          summary: "CONNECT-IP shared TUN active binding reassignments are high"
+          description: "Multiple live sessions are contending for the same source-IP mapping; verify client address uniqueness and ACL segmentation."
           runbook_url: "https://github.com/afbuyers/masque-server/blob/main/docs/runbooks/connect-ip-tun-forward-linux.md"

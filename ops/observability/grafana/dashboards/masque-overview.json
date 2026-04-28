@@ -203,6 +203,38 @@
       ],
       "title": "CONNECT-IP shared TUN stale evictions",
       "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" } }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 56 },
+      "id": 14,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "single" } },
+      "targets": [
+        {
+          "expr": "sum by (backend,result) (rate(masque_connect_ip_tun_managed_nat_backend_total[5m]))",
+          "legendFormat": "{{backend}}/{{result}}",
+          "refId": "A"
+        }
+      ],
+      "title": "CONNECT-IP managed NAT backend outcomes",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" } }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 56 },
+      "id": 15,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "single" } },
+      "targets": [
+        {
+          "expr": "sum by (reason) (rate(masque_connect_ip_tun_shared_binding_conflict_reasons_total[5m]))",
+          "legendFormat": "{{reason}}",
+          "refId": "A"
+        }
+      ],
+      "title": "CONNECT-IP shared TUN conflict reasons",
+      "type": "timeseries"
     }
   ],
   "refresh": "10s",

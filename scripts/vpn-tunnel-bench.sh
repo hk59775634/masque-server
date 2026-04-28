@@ -17,6 +17,7 @@
 #   MASQUE_IP            内网 iperf 目标（默认 103.6.4.131）
 #   SKIP_PUBLIC_IPERF=1  跳过公网 iperf3（部分网络/旧 iperf3 易卡住；默认 0）
 #   CURL_GOOGLE_MAX     curl google 墙钟超时秒数（默认 60）
+#   MASQUE_METRICS      masque metrics URL（默认按 MASQUE_HTTP 推导 /metrics）
 #
 set -euo pipefail
 
@@ -33,6 +34,7 @@ INCLUDE_LOCAL_IPERF="${INCLUDE_LOCAL_IPERF:-0}"
 SKIP_PUBLIC_IPERF="${SKIP_PUBLIC_IPERF:-0}"
 CURL_GOOGLE_MAX="${CURL_GOOGLE_MAX:-60}"
 TUN_WAIT_SEC="${TUN_WAIT_SEC:-20}"
+MASQUE_METRICS="${MASQUE_METRICS:-${MASQUE_HTTP%/}/metrics}"
 
 FP=""
 CODE=""
@@ -192,5 +194,17 @@ REMOTE
 if [[ "$INCLUDE_LOCAL_IPERF" == "1" ]]; then
   pkill -x iperf3 2>/dev/null || true
 fi
+
+echo "[local] verify masque dataplane metrics (managed NAT/shared TUN)"
+curl -sS --max-time 5 "${MASQUE_METRICS}" | awk '
+/^masque_connect_ip_tun_managed_nat_apply_total/ {a=1}
+/^masque_connect_ip_tun_managed_nat_backend_total/ {b=1}
+/^masque_connect_ip_tun_shared_binding_conflict_reasons_total/ {c=1}
+END {
+  if (!a || !b || !c) {
+    print "missing metrics: apply=" a " backend=" b " shared_conflict_reason=" c > "/dev/stderr";
+    exit 1
+  }
+}'
 
 echo "[local] vpn-tunnel-bench done"

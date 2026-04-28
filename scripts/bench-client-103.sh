@@ -8,6 +8,7 @@ CP_LOCAL="${CP_LOCAL:-http://127.0.0.1:8081}"
 MASQUE_HTTP="${MASQUE_HTTP:-http://103.6.4.131:8443}"
 MASQUE_UDP="${MASQUE_UDP:-103.6.4.131:8444}"
 USER_ID="${USER_ID:-1}"
+MASQUE_METRICS="${MASQUE_METRICS:-${MASQUE_HTTP%/}/metrics}"
 
 FP="fp-bench-$(date +%s)-$(openssl rand -hex 4)"
 echo "[local] issue activation fingerprint=$FP"
@@ -105,4 +106,15 @@ tail -35 /tmp/tun.log || true
 REMOTE
 
 pkill -x iperf3 2>/dev/null || true
+echo "[local] verify masque dataplane metrics"
+curl -sS --max-time 5 "${MASQUE_METRICS}" | awk '
+/^masque_connect_ip_tun_managed_nat_apply_total/ {a=1}
+/^masque_connect_ip_tun_managed_nat_backend_total/ {b=1}
+/^masque_connect_ip_tun_shared_binding_conflict_reasons_total/ {c=1}
+END {
+  if (!a || !b || !c) {
+    print "missing metrics: apply=" a " backend=" b " shared_conflict_reason=" c > "/dev/stderr";
+    exit 1
+  }
+}'
 echo "[local] done"

@@ -40,6 +40,26 @@ func ensureIptablesRule(table string, ruleArgs ...string) error {
 	return runCombined("iptables", addArgs...)
 }
 
+func ensureNftRule(family string, table string, chain string, expr string) error {
+	// Ensure table / chain exist (idempotent).
+	if err := runCombined("nft", "add", "table", family, table); err != nil && !strings.Contains(err.Error(), "File exists") {
+		return err
+	}
+	if err := runCombined("nft", "add", "chain", family, table, chain); err != nil && !strings.Contains(err.Error(), "File exists") {
+		return err
+	}
+	checkErr := runCombined("nft", "list", "chain", family, table, chain)
+	if checkErr != nil {
+		return checkErr
+	}
+	// Duplicate-safe add: rely on -a list and textual check.
+	out, _ := exec.Command("nft", "-a", "list", "chain", family, table, chain).CombinedOutput()
+	if strings.Contains(string(out), expr) {
+		return nil
+	}
+	return runCombined("nft", "add", "rule", family, table, chain, expr)
+}
+
 func connectIPTunClampMSS() int {
 	if s := strings.TrimSpace(os.Getenv("CONNECT_IP_TUN_TCP_MSS")); s != "" {
 		n, err := strconv.Atoi(s)
@@ -69,6 +89,11 @@ func maybeConfigureConnectIPTunManagedNAT(ifName string, cfg ListenConfig) bool 
 			cfg.ConnectIPTunManagedNATApplyResults.WithLabelValues(result).Inc()
 		}
 	}
+	markBackend := func(backend, result string) {
+		if cfg.ConnectIPTunManagedNATBackendResults != nil {
+			cfg.ConnectIPTunManagedNATBackendResults.WithLabelValues(backend, result).Inc()
+		}
+	}
 	fail := func(err error) bool {
 		log.Printf("connect-ip: managed NAT apply failed on %s: %v", ifName, err)
 		mark("error")
@@ -84,9 +109,6 @@ func maybeConfigureConnectIPTunManagedNAT(ifName string, cfg ListenConfig) bool 
 	if _, err := exec.LookPath("sysctl"); err != nil {
 		return fail(fmt.Errorf("sysctl not in PATH: %w", err))
 	}
-	if _, err := exec.LookPath("iptables"); err != nil {
-		return fail(fmt.Errorf("iptables not in PATH: %w", err))
-	}
 	if _, err := exec.LookPath("ip"); err != nil {
 		return fail(fmt.Errorf("ip not in PATH: %w", err))
 	}
@@ -98,25 +120,97 @@ func maybeConfigureConnectIPTunManagedNAT(ifName string, cfg ListenConfig) bool 
 			return fail(err)
 		}
 	}
-	// Allow forward tun -> egress and return traffic egress -> tun.
-	if err := ensureIptablesRule("", "FORWARD", "-i", ifName, "-o", egress, "-j", "ACCEPT"); err != nil {
-		return fail(err)
-	}
-	if err := ensureIptablesRule("", "FORWARD", "-i", egress, "-o", ifName, "-m", "state", "--state", "RELATED,ESTABLISHED", "-j", "ACCEPT"); err != nil {
-		return fail(err)
-	}
-	if err := ensureIptablesRule("nat", "POSTROUTING", "-o", egress, "-j", "MASQUERADE"); err != nil {
-		return fail(err)
-	}
 	mss := connectIPTunClampMSS()
-	// MSS clamp on traffic touching the TUN (local termination + forwarded): avoids SYN-ACK advertising 1460 on a 1280 path.
-	if err := ensureIptablesRule("mangle", "PREROUTING", "-i", ifName, "-p", "tcp", "-m", "tcp", "--tcp-flags", "SYN,RST", "SYN", "-j", "TCPMSS", "--set-mss", strconv.Itoa(mss)); err != nil {
+	backend := strings.TrimSpace(strings.ToLower(cfg.ConnectIPTunManagedNATBackend))
+	if backend == "" {
+		backend = "nftables"
+	}
+	applyIPTables := func() error {
+		if _, err := exec.LookPath("iptables"); err != nil {
+			return fmt.Errorf("iptables not in PATH: %w", err)
+		}
+		// Allow forward tun -> egress and return traffic egress -> tun.
+		if err := ensureIptablesRule("", "FORWARD", "-i", ifName, "-o", egress, "-j", "ACCEPT"); err != nil {
+			return err
+		}
+		if err := ensureIptablesRule("", "FORWARD", "-i", egress, "-o", ifName, "-m", "state", "--state", "RELATED,ESTABLISHED", "-j", "ACCEPT"); err != nil {
+			return err
+		}
+		if err := ensureIptablesRule("nat", "POSTROUTING", "-o", egress, "-j", "MASQUERADE"); err != nil {
+			return err
+		}
+		// MSS clamp on traffic touching the TUN (local termination + forwarded): avoids SYN-ACK advertising 1460 on a 1280 path.
+		if err := ensureIptablesRule("mangle", "PREROUTING", "-i", ifName, "-p", "tcp", "-m", "tcp", "--tcp-flags", "SYN,RST", "SYN", "-j", "TCPMSS", "--set-mss", strconv.Itoa(mss)); err != nil {
+			return err
+		}
+		if err := ensureIptablesRule("mangle", "POSTROUTING", "-o", ifName, "-p", "tcp", "-m", "tcp", "--tcp-flags", "SYN,RST", "SYN", "-j", "TCPMSS", "--set-mss", strconv.Itoa(mss)); err != nil {
+			return err
+		}
+		return nil
+	}
+	applyNFTables := func() error {
+		if _, err := exec.LookPath("nft"); err != nil {
+			return fmt.Errorf("nft not in PATH: %w", err)
+		}
+		// Use dedicated table/chains to avoid clobbering host rules.
+		if err := ensureNftRule("inet", "masque_connect_ip", "forward", "type filter hook forward priority 0; policy accept;"); err != nil {
+			return err
+		}
+		if err := ensureNftRule("ip", "masque_connect_ip", "postrouting", "type nat hook postrouting priority 100; policy accept;"); err != nil {
+			return err
+		}
+		if err := ensureNftRule("ip", "masque_connect_ip", "prerouting", "type filter hook prerouting priority -150; policy accept;"); err != nil {
+			return err
+		}
+		if err := ensureNftRule("ip", "masque_connect_ip", "postrouting_mangle", "type filter hook postrouting priority -150; policy accept;"); err != nil {
+			return err
+		}
+		if err := ensureNftRule("inet", "masque_connect_ip", "forward", fmt.Sprintf("iifname %q oifname %q accept", ifName, egress)); err != nil {
+			return err
+		}
+		if err := ensureNftRule("inet", "masque_connect_ip", "forward", fmt.Sprintf("iifname %q oifname %q ct state established,related accept", egress, ifName)); err != nil {
+			return err
+		}
+		if err := ensureNftRule("ip", "masque_connect_ip", "postrouting", fmt.Sprintf("oifname %q masquerade", egress)); err != nil {
+			return err
+		}
+		if err := ensureNftRule("ip", "masque_connect_ip", "prerouting", fmt.Sprintf("iifname %q tcp flags syn tcp option maxseg size set %d", ifName, mss)); err != nil {
+			return err
+		}
+		if err := ensureNftRule("ip", "masque_connect_ip", "postrouting_mangle", fmt.Sprintf("oifname %q tcp flags syn tcp option maxseg size set %d", ifName, mss)); err != nil {
+			return err
+		}
+		return nil
+	}
+
+	tryBackend := func(b string) error {
+		switch b {
+		case "iptables":
+			return applyIPTables()
+		case "nftables":
+			return applyNFTables()
+		default:
+			return fmt.Errorf("unsupported CONNECT_IP_TUN_NAT_BACKEND=%q (want nftables or iptables)", b)
+		}
+	}
+	if err := tryBackend(backend); err != nil {
+		markBackend(backend, "error")
+		if backend == "nftables" && cfg.ConnectIPTunManagedNATAllowIPTablesFallback {
+			log.Printf("connect-ip: managed NAT nftables apply failed on %s; falling back to iptables: %v", ifName, err)
+			markBackend("nftables", "fallback")
+			if err2 := tryBackend("iptables"); err2 != nil {
+				markBackend("iptables", "error")
+				return fail(fmt.Errorf("nftables failed (%v); iptables fallback failed (%v)", err, err2))
+			}
+			markBackend("iptables", "ok")
+			mark("ok")
+			log.Printf("connect-ip: managed NAT applied on %s via iptables fallback (egress=%s addr=%q tcp_mss=%d)", ifName, egress, strings.TrimSpace(cfg.ConnectIPTunAddressCIDR), mss)
+			return true
+		}
 		return fail(err)
 	}
-	if err := ensureIptablesRule("mangle", "POSTROUTING", "-o", ifName, "-p", "tcp", "-m", "tcp", "--tcp-flags", "SYN,RST", "SYN", "-j", "TCPMSS", "--set-mss", strconv.Itoa(mss)); err != nil {
-		return fail(err)
-	}
+	markBackend(backend, "ok")
 	mark("ok")
-	log.Printf("connect-ip: managed NAT applied on %s (egress=%s addr=%q tcp_mss=%d)", ifName, egress, strings.TrimSpace(cfg.ConnectIPTunAddressCIDR), mss)
+	log.Printf("connect-ip: managed NAT applied on %s via %s (egress=%s addr=%q tcp_mss=%d)", ifName, backend, egress, strings.TrimSpace(cfg.ConnectIPTunAddressCIDR), mss)
 	return true
 }

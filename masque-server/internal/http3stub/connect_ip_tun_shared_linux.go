@@ -148,6 +148,13 @@ func (m *sharedTunManager) bindClientIP(id, srcIP string) {
 		if m.cfg.ConnectIPTunSharedBindingConflicts != nil {
 			m.cfg.ConnectIPTunSharedBindingConflicts.Inc()
 		}
+		reason := "active_reassign"
+		if old.lastSeen.Before(now.Add(-m.bindingTTL())) {
+			reason = "stale_reassign"
+		}
+		if m.cfg.ConnectIPTunSharedBindingConflictReasons != nil {
+			m.cfg.ConnectIPTunSharedBindingConflictReasons.WithLabelValues(reason).Inc()
+		}
 	}
 	m.ipToSession[srcIP] = sharedTunBinding{sessionID: id, lastSeen: now}
 	m.mu.Unlock()
