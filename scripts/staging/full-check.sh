@@ -144,6 +144,8 @@ fi
 
 if [[ "${RUN_MULTI_NODE_HA_CHECK}" == "1" ]]; then
   info "running multi-node HA checks"
+  echo "" >>"${REPORT_FILE}"
+  echo "### multi-node-ha-check.sh output" >>"${REPORT_FILE}"
   if "${ROOT_DIR}/scripts/staging/multi-node-ha-check.sh" >>"${REPORT_FILE}" 2>&1; then
     pass "multi-node-ha-check.sh"
   else

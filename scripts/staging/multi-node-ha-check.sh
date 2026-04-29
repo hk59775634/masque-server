@@ -29,6 +29,7 @@ fi
 
 healthy_count=0
 baseline_caps=""
+matrix_json='[]'
 for raw in "${nodes[@]}"; do
   node="$(echo "${raw}" | xargs)"
   if [[ -z "${node}" ]]; then
@@ -37,8 +38,40 @@ for raw in "${nodes[@]}"; do
   echo "[multi-node-ha] check node=${node}"
   curl -fsS "${node%/}/healthz" >/dev/null
   caps="$(curl -fsS "${node%/}/v1/masque/capabilities")"
+  matrix_json="$(python3 - <<'PY' "${matrix_json}" "${node}" "${caps}"
+import json, sys
+arr = json.loads(sys.argv[1])
+node = sys.argv[2]
+cap = json.loads(sys.argv[3])
+arr.append({"kind": "node", "url": node, "cap": cap})
+print(json.dumps(arr, separators=(",", ":")))
+PY
+)"
   if [[ -z "${baseline_caps}" ]]; then
     baseline_caps="${caps}"
+  else
+    python3 - <<'PY' "${baseline_caps}" "${caps}" "${node}"
+import json, sys
+base = json.loads(sys.argv[1])
+cur = json.loads(sys.argv[2])
+node = sys.argv[3]
+
+def profile(cap):
+    ci = (((cap.get("tunnel") or {}).get("quic") or {}).get("connect_ip") or {})
+    dg = (ci.get("http3_datagrams") or {})
+    return {
+        "tun_linux_per_session": bool(dg.get("tun_linux_per_session", False)),
+        "tun_linux_managed_nat": bool(dg.get("tun_linux_managed_nat", False)),
+        "tun_linux_shared": bool(dg.get("tun_linux_shared", False)),
+        "tun_linux_managed_nat_backend": str(dg.get("tun_linux_managed_nat_backend", "")),
+        "ip_forward": str(dg.get("ip_forward", "")),
+    }
+
+bp = profile(base)
+cp = profile(cur)
+if bp != cp:
+    raise SystemExit(f"node capability profile mismatch: node={node} baseline={bp} current={cp}")
+PY
   fi
   healthy_count=$((healthy_count + 1))
 done
@@ -65,6 +98,15 @@ if [[ -n "${MASQUE_LB_URL}" ]]; then
   echo "[multi-node-ha] check load-balancer endpoint=${lb}"
   curl -fsS "${lb}/healthz" >/dev/null
   lb_caps="$(curl -fsS "${lb}/v1/masque/capabilities")"
+  matrix_json="$(python3 - <<'PY' "${matrix_json}" "${lb}" "${lb_caps}"
+import json, sys
+arr = json.loads(sys.argv[1])
+lb = sys.argv[2]
+cap = json.loads(sys.argv[3])
+arr.append({"kind": "lb", "url": lb, "cap": cap})
+print(json.dumps(arr, separators=(",", ":")))
+PY
+)"
   python3 - <<'PY' "${baseline_caps}" "${lb_caps}"
 import json, sys
 node_cap = json.loads(sys.argv[1])
@@ -87,6 +129,36 @@ if node_keys != lb_keys:
 print("[multi-node-ha] lb capability profile matches node baseline")
 PY
 fi
+
+python3 - <<'PY' "${matrix_json}" "${EXPECTED_HEALTHY_NODES}"
+import json, sys
+rows = json.loads(sys.argv[1])
+expected = int(sys.argv[2])
+
+def extract(cap):
+    ci = (((cap.get("tunnel") or {}).get("quic") or {}).get("connect_ip") or {})
+    dg = (ci.get("http3_datagrams") or {})
+    return {
+        "tun_linux_per_session": "yes" if dg.get("tun_linux_per_session", False) else "no",
+        "tun_linux_managed_nat": "yes" if dg.get("tun_linux_managed_nat", False) else "no",
+        "tun_linux_shared": "yes" if dg.get("tun_linux_shared", False) else "no",
+        "managed_nat_backend": str(dg.get("tun_linux_managed_nat_backend", "")) or "-",
+        "ip_forward": str(dg.get("ip_forward", "")) or "-",
+    }
+
+print("[multi-node-ha] summary")
+print("[multi-node-ha] expected_healthy_nodes=%d listed_endpoints=%d" % (expected, len(rows)))
+print("[multi-node-ha] capability matrix markdown follows")
+print("### Multi-node HA Capability Matrix")
+print("")
+print("| Endpoint | Type | tun_per_session | managed_nat | shared_tun | nat_backend | ip_forward |")
+print("|---|---|---|---|---|---|---|")
+for row in rows:
+    p = extract(row["cap"])
+    print(
+        f"| {row['url']} | {row['kind']} | {p['tun_linux_per_session']} | {p['tun_linux_managed_nat']} | {p['tun_linux_shared']} | {p['managed_nat_backend']} | {p['ip_forward']} |"
+    )
+PY
 
 echo "[multi-node-ha] check passed"
 
