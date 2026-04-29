@@ -14,7 +14,7 @@ python3 - <<'PY' "${caps_raw}"
 import json, sys
 
 cap = json.loads(sys.argv[1])
-ci = (((cap.get("tunnel") or {}).get("quic") or {}).get("connect_ip") or {}
+ci = ((cap.get("tunnel") or {}).get("quic") or {}).get("connect_ip") or {}
 dg = (ci.get("http3_datagrams") or {})
 required = ["tun_linux_per_session", "tun_linux_managed_nat", "tun_linux_shared"]
 missing = [k for k in required if not dg.get(k, False)]
@@ -36,7 +36,9 @@ must_have = [
     "masque_connect_ip_tun_open_echo_fallback_total",
     "masque_connect_ip_tun_link_up_failures_total",
     "masque_connect_ip_tun_managed_nat_apply_total",
+    "masque_connect_ip_tun_managed_nat_backend_total",
     "masque_connect_ip_tun_shared_binding_conflicts_total",
+    "masque_connect_ip_tun_shared_binding_conflict_reasons_total",
     "masque_connect_ip_tun_shared_binding_stale_evictions_total",
 ]
 missing = [m for m in must_have if m not in body]
@@ -54,7 +56,9 @@ required = {
     "MasqueConnectIPTunOpenEchoFallback",
     "MasqueConnectIPTunLinkUpFailures",
     "MasqueConnectIPTunManagedNATApplyErrors",
+    "MasqueConnectIPTunManagedNATNftFallback",
     "MasqueConnectIPTunSharedBindingConflictsHigh",
+    "MasqueConnectIPTunSharedBindingActiveReassignHigh",
 }
 missing = sorted(required - names)
 if missing:

@@ -7,12 +7,13 @@
 - **Phase 1（文档化交付 M1–M4）**：已闭环（控制面 + 最小 masque 桩 + Linux 客户端 + 可观测/部署/验收材料）；详见 `docs/release-notes/m1-m4-release-notes-2026-04-25.md` 与 `docs/runbooks/m4-go-live-acceptance-report-2026-04-25.md`。
 - **Phase 2a**：数据面探索与运维闭环（**服务端 TCP 探测** `POST /v1/masque/tcp-probe`、可选主监听 **HTTPS**、既有 E2E/可观测/客户端能力）；能力见 `GET /v1/masque/capabilities` 的 `tunnel.phase2a`。
 - **Phase 2b（stub，本仓库已闭环）**：Linux **`connect-ip-tun`**（TUN ↔ RFC 9484 Context 0、ADDRESS/ROUTE 胶囊、**`-route split|all`**、**`-bypass-masque-host`**、**`-dns`** / **`-dns-resolvectl`** 与 **`-dns-resolvectl-fallback`**、`doctor -connect-ip`）、masque **CONNECT-IP 桩**（授权、capsule、可选 UDP/ICMP 中继、**主动 ROUTE_ADVERTISEMENT**、指标/告警/面板）；masque 在 **Linux** 上可选 **`CONNECT_IP_TUN_FORWARD`**（**每会话 host TUN 桥**，不内置 SNAT）与可选 **`CONNECT_IP_TUN_LINK_UP`**（**`ip link up`**）。与 `开发需求.md` §7.1–§7.3 对齐的是 **stub 数据面 + 客户端路由/DNS 自动化**；**非**托管 NAT 下的全协议生产 VPN。
-- **Phase 2b（生产级，仍待办）**：设备 **mTLS** 与证书生命周期、控制面↔masque **双向 TLS / 非 REST 硬化**、细粒度 **RBAC**、服务端 **托管 NAT 拓扑与全 TCP·IPv6 内核路径**（`开发需求.md` §6.1–§6.3）。
+- **Phase 2b（Linux 数据面 P0，主线已落地）**：**`CONNECT_IP_TUN_MANAGED_NAT`** 下 **nftables 优先**与可配置 **iptables 回退**、部署前置 **`scripts/deploy/dataplane-preflight.sh`**、托管 NAT / 共享绑定相关指标与告警（含 nft fallback、active reassign）、运维 **`scripts/vpn-nat-backend-fault-injection.sh`** 与 Actions **`VPN NAT fault-injection script`**（语法 + `--dry-run` smoke）。详见 **`docs/runbooks/connect-ip-tun-forward-linux.md`**。
+- **Phase 2b（生产级，仍待办）**：设备 **mTLS** 与证书生命周期、控制面↔masque **双向 TLS / 非 REST 硬化**、细粒度 **RBAC**；相对当前实现仍缺 **全协议 / IPv6 端到端内核转发**、**多节点与高可用拓扑**等（`开发需求.md` §6.1–§6.3、§2.2）。
 
 ### 当前开发进度（简要）
 
-- **已完成（含 Phase 2a + Phase 2b stub）**：端到端激活/连接桩（含 Docker E2E）、`MASQUE_SERVER_URL`、`connect -dry-run`、连接重试、会话 ID、运行时状态与 `status` 摘要、`disconnect` 幂等、Prometheus（含 authorize、tcp-probe、CONNECT-IP 指标与告警）、masque **X-Request-ID** 与 `/connect` 日志、`/connect` **64KiB** 请求体上限、**tcp-probe** 与 **`doctor -tcp-probe`**、可选 **`LISTEN_TLS_*`** 主监听 TLS、客户端为每次 POST 带 **X-Request-ID**；**CONNECT-IP stub** + **`connect-ip-tun`**（重连、日志节流、会话/拨号失败上限、分段默认路由、DNS 覆盖与恢复、**resolvectl 失败回退 resolv.conf**）；masque 可选 **`CONNECT_IP_TUN_FORWARD`** / **`CONNECT_IP_TUN_LINK_UP`**（Linux 每会话 TUN 桥与可选 **`ip link up`**）。
-- **未开始（生产 Phase 2b 余项）**：mTLS 与证书生命周期、控制面↔masque 双向 TLS/非 REST 硬化、细粒度 RBAC、masque **托管 SNAT/路由与全协议内核转发**。
+- **已完成（含 Phase 2a + Phase 2b stub + Linux 数据面 P0）**：端到端激活/连接桩（含 Docker E2E）、`MASQUE_SERVER_URL`、`connect -dry-run`、连接重试、会话 ID、运行时状态与 `status` 摘要、`disconnect` 幂等、Prometheus（含 authorize、tcp-probe、CONNECT-IP 指标与告警）、masque **X-Request-ID** 与 `/connect` 日志、`/connect` **64KiB** 请求体上限、**tcp-probe** 与 **`doctor -tcp-probe`**、可选 **`LISTEN_TLS_*`** 主监听 TLS、客户端为每次 POST 带 **X-Request-ID**；**CONNECT-IP stub** + **`connect-ip-tun`**（重连、日志节流、会话/拨号失败上限、分段默认路由、DNS 覆盖与恢复、**resolvectl 失败回退 resolv.conf**）；masque 可选 **`CONNECT_IP_TUN_FORWARD`** / **`CONNECT_IP_TUN_LINK_UP`** / **`CONNECT_IP_TUN_MANAGED_NAT`**（Linux：每会话或共享 TUN、托管 NAT **nft/iptables**、deploy **preflight**、故障注入与 CI smoke）。
+- **未开始（生产 Phase 2b 余项）**：mTLS 与证书生命周期、控制面↔masque 双向 TLS/非 REST 硬化、细粒度 RBAC、**IPv6 端到端 / 全 TCP 内核路径 / 多节点 HA**（相对当前 stub+TUN+托管 NAT 自动化）。
 
 This repository contains a closed-loop implementation and M2 upgrades:
 
@@ -82,7 +83,7 @@ Implemented:
 
 Not yet implemented (production Phase 2b and beyond):
 
-- **Production-grade** kernel-routed MASQUE on masque-server (managed SNAT/topology, full TCP/IPv6 path — today: user-space stub + optional relays + optional **Linux** per-session **TUN** bridge only)
+- **Production-grade** end-to-end kernel path on masque-server (**IPv6 through-tunnel**, full **TCP** stack on inner traffic where required, **multi-node** — today: user-space echo/relay + optional **Linux** TUN + **managed NAT** automation on the host, not a full router OS)
 - mTLS certificate issuance/rotation/revocation for devices
 - Fine-grained RBAC beyond the `is_admin` flag (roles/permissions matrix)
 - Control-plane ↔ masque **mTLS** / gRPC-style hardened channel (beyond HTTPS authorize today)
