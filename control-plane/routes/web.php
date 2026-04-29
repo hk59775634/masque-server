@@ -44,17 +44,17 @@ Route::middleware(['auth', EnsureSessionNotRevoked::class])->group(function (): 
         ->name('admin.two-factor.verify');
 
     Route::middleware(['admin.two-factor', EnsureAdminSessionFresh::class])->group(function (): void {
-        Route::get('/admin', [AdminController::class, 'index'])->name('admin.index');
-        Route::post('/admin/operation-token', [AdminController::class, 'issueOperationToken'])->name('admin.operation-token');
+        Route::get('/admin', [AdminController::class, 'index'])->middleware('permission:admin.access')->name('admin.index');
+        Route::post('/admin/operation-token', [AdminController::class, 'issueOperationToken'])->middleware('permission:admin.access')->name('admin.operation-token');
         Route::get('/admin/two-factor/setup', [AdminTwoFactorController::class, 'setup'])->name('admin.two-factor.setup');
         Route::post('/admin/two-factor/setup', [AdminTwoFactorController::class, 'confirm'])->name('admin.two-factor.setup.confirm');
         Route::post('/admin/two-factor/disable', [AdminTwoFactorController::class, 'disable'])->name('admin.two-factor.disable');
-        Route::post('/admin/users/{user}/force-logout', [AdminController::class, 'forceLogoutUser'])->name('admin.users.force-logout');
-        Route::post('/admin/users/force-logout-scope', [AdminController::class, 'forceLogoutScope'])->name('admin.users.force-logout-scope');
-        Route::post('/admin/users/{user}/policy', [AdminController::class, 'updateUserPolicy'])->name('admin.users.policy');
-        Route::post('/admin/devices/{device}/policy', [AdminController::class, 'updateDevicePolicy'])->name('admin.devices.policy');
-        Route::post('/admin/audits/archive-now', [AdminController::class, 'archiveAuditsNow'])->name('admin.audits.archive-now');
-        Route::get('/admin/audits', [AdminController::class, 'index'])->name('admin.audits');
-        Route::get('/admin/audits/export', [AdminController::class, 'exportAudits'])->name('admin.audits.export');
+        Route::post('/admin/users/{user}/force-logout', [AdminController::class, 'forceLogoutUser'])->middleware('permission:admin.session.revoke')->name('admin.users.force-logout');
+        Route::post('/admin/users/force-logout-scope', [AdminController::class, 'forceLogoutScope'])->middleware('permission:admin.session.revoke')->name('admin.users.force-logout-scope');
+        Route::post('/admin/users/{user}/policy', [AdminController::class, 'updateUserPolicy'])->middleware('permission:admin.policy.write')->name('admin.users.policy');
+        Route::post('/admin/devices/{device}/policy', [AdminController::class, 'updateDevicePolicy'])->middleware('permission:admin.policy.write')->name('admin.devices.policy');
+        Route::post('/admin/audits/archive-now', [AdminController::class, 'archiveAuditsNow'])->middleware('permission:admin.audit.read')->name('admin.audits.archive-now');
+        Route::get('/admin/audits', [AdminController::class, 'index'])->middleware('permission:admin.audit.read')->name('admin.audits');
+        Route::get('/admin/audits/export', [AdminController::class, 'exportAudits'])->middleware('permission:admin.audit.read')->name('admin.audits.export');
     });
 });

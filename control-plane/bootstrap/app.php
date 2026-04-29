@@ -1,7 +1,9 @@
 <?php
 
 use App\Http\Middleware\EnsureAdminTwoFactorVerified;
+use App\Http\Middleware\EnsureUserHasPermission;
 use App\Http\Middleware\SecurityHeaders;
+use App\Http\Middleware\VerifyMasqueAuthorizeSignature;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -19,6 +21,8 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->append(SecurityHeaders::class);
         $middleware->alias([
             'admin.two-factor' => EnsureAdminTwoFactorVerified::class,
+            'permission' => EnsureUserHasPermission::class,
+            'masque.authorize-signature' => VerifyMasqueAuthorizeSignature::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

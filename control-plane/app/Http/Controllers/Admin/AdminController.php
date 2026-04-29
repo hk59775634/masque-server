@@ -391,7 +391,7 @@ class AdminController extends Controller
 
     private function authorizeAdmin(Request $request): void
     {
-        abort_unless($request->user()?->is_admin, 403, 'Admin access required');
+        abort_unless($request->user()?->hasPermission('admin.access'), 403, 'Admin access required');
     }
 
     private function sanitizeAclRules(array $rules): array

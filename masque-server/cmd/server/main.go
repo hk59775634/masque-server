@@ -58,6 +58,7 @@ func main() {
 	}
 
 	cpURL := strings.TrimRight(strings.TrimSpace(envOr("CONTROL_PLANE_URL", "http://127.0.0.1:8000")), "/")
+	cpAuthzHMACSecret := strings.TrimSpace(os.Getenv("CONTROL_PLANE_AUTHZ_HMAC_SECRET"))
 	listenAddr := envOr("LISTEN_ADDR", ":8443")
 	quicListen := strings.TrimSpace(os.Getenv("QUIC_LISTEN_ADDR"))
 	tlsCertPath := strings.TrimSpace(os.Getenv("LISTEN_TLS_CERT"))
@@ -67,6 +68,10 @@ func main() {
 	metrics := newServerMetrics(metricsRegistry)
 
 	cpClient := auth.NewClient(cpURL)
+	cpClient.HMACSecret = cpAuthzHMACSecret
+	if cpAuthzHMACSecret != "" {
+		log.Printf("control-plane authorize request signing enabled (HMAC-SHA256)")
+	}
 	connectIPUDPRelay := isTruthyEnv("CONNECT_IP_UDP_RELAY")
 	connectIPICMPRelay := isTruthyEnv("CONNECT_IP_ICMP_RELAY")
 	connectIPRouteAdvCIDR := strings.TrimSpace(os.Getenv("CONNECT_IP_ROUTE_ADV_CIDR"))

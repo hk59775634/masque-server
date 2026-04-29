@@ -132,7 +132,11 @@ sudo go run ./cmd/client connect-ip-tun [-masque-server URL] [-connect-ip-udp ho
 
 1. 启动控制面：`cd control-plane`，迁移、配置 **`MASQUE_SERVER_URL`** 指向 masque 基址（勿与 Laravel `APP_URL` 混用），`php artisan serve`。
 2. 启动 masque：`cd masque-server`，设置 `CONTROL_PLANE_URL`，按需 `QUIC_LISTEN_ADDR` 等，运行 `go run ./cmd/server`。
+   - 可选服务间加固（`POST /api/v1/server/authorize` HMAC 签名）：两端配置同一密钥
+     - masque-server：`CONTROL_PLANE_AUTHZ_HMAC_SECRET=...`
+     - control-plane：`MASQUE_AUTHORIZE_HMAC_SECRET=...`（可选再开 `MASQUE_AUTHORIZE_HMAC_REQUIRED=true`、`MASQUE_AUTHORIZE_HMAC_WINDOW_SECONDS=300`）
 3. 客户端：`cd linux-client`，`activate`、`doctor`、`connect` / **`connect-ip-tun`** 等。
+   - 令牌生命周期接口：`POST /api/v1/device/token/rotate`（Bearer + `fingerprint`）与 `POST /api/v1/device/token/revoke`（立即作废当前 token）。
 
 更完整的步骤、E2E、可观测与部署说明仍以 **[README.md](./README.md)** 为准。
 

@@ -260,6 +260,55 @@ class ProvisioningController extends Controller
         ]);
     }
 
+    #[HeaderParameter('Authorization', 'Bearer `<device_token>` issued by `POST /api/v1/activate`.', required: true, type: 'string')]
+    public function rotateDeviceToken(Request $request): JsonResponse
+    {
+        $device = $this->deviceFromBearer($request);
+        if (! $device) {
+            return response()->json(['message' => 'Unauthorized'], 401);
+        }
+        $validated = $request->validate([
+            'fingerprint' => ['required', 'string', 'max:255'],
+        ]);
+        if ((string) $device->fingerprint !== (string) $validated['fingerprint']) {
+            return response()->json(['message' => 'Fingerprint mismatch'], 403);
+        }
+
+        $tokenExpiresAt = now()->addHours(self::TOKEN_TTL_HOURS);
+        $jwtToken = $this->issueDeviceJwt((int) $device->user_id, (string) $device->fingerprint, $tokenExpiresAt);
+        $device->update([
+            'api_token_hash' => hash('sha256', $jwtToken),
+            'token_expires_at' => $tokenExpiresAt,
+            'last_seen_at' => now(),
+            'status' => 'active',
+        ]);
+        $this->audit('device.token_rotated', 'Device token rotated', $request, $device->user_id, $device->id);
+
+        return response()->json([
+            'device_id' => $device->id,
+            'device_token' => $jwtToken,
+            'token_expires_at' => $tokenExpiresAt->toIso8601String(),
+        ]);
+    }
+
+    #[HeaderParameter('Authorization', 'Bearer `<device_token>` issued by `POST /api/v1/activate`.', required: true, type: 'string')]
+    public function revokeDeviceToken(Request $request): JsonResponse
+    {
+        $device = $this->deviceFromBearer($request);
+        if (! $device) {
+            return response()->json(['message' => 'Unauthorized'], 401);
+        }
+
+        $device->update([
+            'api_token_hash' => null,
+            'token_expires_at' => now(),
+            'last_seen_at' => now(),
+        ]);
+        $this->audit('device.token_revoked', 'Device token revoked', $request, $device->user_id, $device->id);
+
+        return response()->json(['ok' => true]);
+    }
+
     #[HeaderParameter('Idempotency-Key', 'Optional UUID; same key + identical body replays prior success; mismatch returns 409.', required: false, type: 'string')]
     public function authorizeSession(Request $request): JsonResponse
     {

@@ -33,7 +33,10 @@ This repository contains a closed-loop implementation and M2 upgrades:
    - `cd ../masque-server`
    - `go mod tidy`
    - `go run ./cmd/server version` (optional; prints build metadata, overridable with `-ldflags -X main.version=...`)
-   - `CONTROL_PLANE_URL=http://127.0.0.1:8000 go run ./cmd/server`
+  - `CONTROL_PLANE_URL=http://127.0.0.1:8000 go run ./cmd/server`
+  - Optional control-plane authorize hardening (shared-secret HMAC on `POST /api/v1/server/authorize`): set the same secret on both sides:
+    - masque-server: `CONTROL_PLANE_AUTHZ_HMAC_SECRET=...`
+    - control-plane: `MASQUE_AUTHORIZE_HMAC_SECRET=...` (and optionally `MASQUE_AUTHORIZE_HMAC_REQUIRED=true`, `MASQUE_AUTHORIZE_HMAC_WINDOW_SECONDS=300`)
    - Optional **TLS on the main TCP listener** (dev): `./scripts/dev/gen-masque-listen-tls.sh /tmp` then `LISTEN_TLS_CERT=/tmp/masque-listen.crt LISTEN_TLS_KEY=/tmp/masque-listen.key go run ./cmd/server` (set control-plane **`MASQUE_SERVER_URL`** to `https://...`; clients use `https` or `curl -k`)
    - Optional UDP **HTTP/3** health/capabilities + **CONNECT-IP stub** (self-signed TLS, dev only): `QUIC_LISTEN_ADDR=:8444` on the same process; probe with `curl --http3-only -k https://127.0.0.1:8444/healthz`. **Dev only:** `CONNECT_IP_SKIP_AUTH=1` or `MASQUE_CONNECT_IP_SKIP_AUTH=1` disables Bearer/Device-Fingerprint on CONNECT-IP (see capabilities `quic.connect_ip.dev`). **`CONNECT_IP_TUN_FORWARD`** / **`CONNECT_IP_TUN_SHARED`** / **`CONNECT_IP_TUN_LINK_UP`** / **`CONNECT_IP_TUN_MANAGED_NAT`** widen the host attack surface — use only in controlled environments.
    - Linux client: `client doctor -connect-ip` dials QUIC using **`transport.http3_stub.listen_udp`** from capabilities (host taken from `masque_server_url` when listen_udp is `:port`); override with **`-connect-ip-udp 127.0.0.1:8444`** if needed.
@@ -42,6 +45,8 @@ This repository contains a closed-loop implementation and M2 upgrades:
    - `POST /api/v1/devices/activation-code`
    - `POST /api/v1/devices/activation-code-with-credentials` (email + password + `fingerprint` + optional `device_name`; returns `activation_code` for the same `POST /api/v1/activate` flow; throttled)
    - `POST /api/v1/users/{id}/policy` or `POST /api/v1/devices/{id}/policy`
+   - `POST /api/v1/device/token/rotate` (Bearer token + `fingerprint`; rotate device token)
+   - `POST /api/v1/device/token/revoke` (Bearer token; revoke current device token immediately)
 4. Activate and connect from CLI:
    - `cd ../linux-client`
    - `go mod tidy`

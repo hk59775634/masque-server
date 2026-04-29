@@ -11,7 +11,7 @@ class EnsureAdminTwoFactorVerified
     public function handle(Request $request, Closure $next): Response
     {
         $user = $request->user();
-        if (! $user?->is_admin) {
+        if (! $user?->hasPermission('admin.access')) {
             return $next($request);
         }
 

@@ -25,5 +25,7 @@ Route::prefix('v1')->middleware('throttle:120,1')->group(function (): void {
     Route::post('/devices/activation-code', [ProvisioningController::class, 'issueActivationCode'])->middleware(['throttle:20,1', EnsureApiIdempotency::class]);
     Route::post('/activate', [ProvisioningController::class, 'activateDevice'])->middleware(['throttle:20,1', EnsureApiIdempotency::class]);
     Route::get('/config', [ProvisioningController::class, 'fetchConfig']);
-    Route::post('/server/authorize', [ProvisioningController::class, 'authorizeSession'])->middleware(['throttle:240,1', EnsureApiIdempotency::class]);
+    Route::post('/device/token/rotate', [ProvisioningController::class, 'rotateDeviceToken'])->middleware(['throttle:20,1', EnsureApiIdempotency::class]);
+    Route::post('/device/token/revoke', [ProvisioningController::class, 'revokeDeviceToken'])->middleware(['throttle:20,1', EnsureApiIdempotency::class]);
+    Route::post('/server/authorize', [ProvisioningController::class, 'authorizeSession'])->middleware(['throttle:240,1', EnsureApiIdempotency::class, 'masque.authorize-signature']);
 });

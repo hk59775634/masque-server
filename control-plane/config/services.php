@@ -43,6 +43,13 @@ return [
     */
     'masque' => [
         'server_url' => rtrim((string) env('MASQUE_SERVER_URL', 'http://127.0.0.1:8443'), '/'),
+        // Optional HMAC signature verification for POST /api/v1/server/authorize
+        // Header contract:
+        // - X-Masque-Authz-Timestamp: unix seconds
+        // - X-Masque-Authz-Signature: HMAC-SHA256(method+"\n"+path+"\n"+ts+"\n"+sha256(body))
+        'authorize_hmac_secret' => (string) env('MASQUE_AUTHORIZE_HMAC_SECRET', ''),
+        'authorize_hmac_required' => filter_var(env('MASQUE_AUTHORIZE_HMAC_REQUIRED', false), FILTER_VALIDATE_BOOL),
+        'authorize_hmac_window_seconds' => (int) env('MASQUE_AUTHORIZE_HMAC_WINDOW_SECONDS', 300),
     ],
 
     'prometheus' => [

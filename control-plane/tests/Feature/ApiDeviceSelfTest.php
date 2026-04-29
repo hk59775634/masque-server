@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\Device;
 use App\Models\User;
+use Illuminate\Support\Str;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -154,5 +155,99 @@ class ApiDeviceSelfTest extends TestCase
         ]);
         $act->assertOk()
             ->assertJsonPath('config.server_addr', 'http://masque.test:9443');
+    }
+
+    public function test_device_token_rotate_and_revoke(): void
+    {
+        [$token, $fingerprint] = $this->activateDemoDevice('token-flow@example.com', 'fp-token-flow');
+
+        $rotate = $this->withToken($token)->postJson('/api/v1/device/token/rotate', [
+            'fingerprint' => $fingerprint,
+        ]);
+        $rotate->assertOk();
+        $newToken = (string) $rotate->json('device_token');
+        $this->assertNotSame($token, $newToken);
+
+        // Old token should be invalid immediately after rotation.
+        $this->withToken($token)->getJson('/api/v1/devices/self')
+            ->assertStatus(401);
+
+        // New token should work.
+        $this->withToken($newToken)->getJson('/api/v1/devices/self')
+            ->assertOk()
+            ->assertJsonPath('device.fingerprint', $fingerprint);
+
+        $this->withToken($newToken)->postJson('/api/v1/device/token/revoke')
+            ->assertOk()
+            ->assertJsonPath('ok', true);
+
+        // Revoked token should no longer work.
+        $this->withToken($newToken)->getJson('/api/v1/devices/self')
+            ->assertStatus(401);
+    }
+
+    public function test_server_authorize_hmac_required_rejects_unsigned_and_accepts_signed(): void
+    {
+        [$token, $fingerprint] = $this->activateDemoDevice('hmac-authz@example.com', 'fp-hmac-authz');
+
+        config([
+            'services.masque.authorize_hmac_secret' => 'test-hmac-secret',
+            'services.masque.authorize_hmac_required' => true,
+            'services.masque.authorize_hmac_window_seconds' => 300,
+        ]);
+
+        $payload = [
+            'device_token' => $token,
+            'fingerprint' => $fingerprint,
+        ];
+
+        $this->postJson('/api/v1/server/authorize', $payload)
+            ->assertStatus(401)
+            ->assertJsonPath('error', 'missing_signature_headers');
+
+        $body = json_encode($payload, JSON_UNESCAPED_SLASHES);
+        $this->assertIsString($body);
+        $ts = (string) now()->timestamp;
+        $macPayload = implode("\n", [
+            'POST',
+            '/api/v1/server/authorize',
+            $ts,
+            hash('sha256', $body),
+        ]);
+        $sig = hash_hmac('sha256', $macPayload, 'test-hmac-secret');
+
+        $this->withHeaders([
+            'X-Masque-Authz-Timestamp' => $ts,
+            'X-Masque-Authz-Signature' => $sig,
+        ])->postJson('/api/v1/server/authorize', $payload)
+            ->assertOk()
+            ->assertJsonPath('allowed', true)
+            ->assertJsonPath('device_id', Device::query()->where('fingerprint', $fingerprint)->firstOrFail()->id);
+    }
+
+    /**
+     * @return array{0:string,1:string}
+     */
+    private function activateDemoDevice(string $email, string $fingerprint): array
+    {
+        $this->postJson('/api/v1/users', [
+            'name' => 'Demo '.Str::before($email, '@'),
+            'email' => $email,
+            'password' => 'password123',
+        ])->assertStatus(201);
+
+        $user = User::query()->where('email', $email)->firstOrFail();
+        $code = $this->postJson('/api/v1/devices/activation-code', [
+            'user_id' => $user->id,
+            'device_name' => 'demo-device',
+            'fingerprint' => $fingerprint,
+        ])->assertStatus(201)->json('activation_code');
+
+        $token = $this->postJson('/api/v1/activate', [
+            'activation_code' => $code,
+            'fingerprint' => $fingerprint,
+        ])->assertOk()->json('device_token');
+
+        return [(string) $token, $fingerprint];
     }
 }
