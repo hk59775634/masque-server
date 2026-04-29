@@ -30,6 +30,7 @@ fi
 healthy_count=0
 baseline_caps=""
 matrix_json='[]'
+normalized_nodes_json='[]'
 for raw in "${nodes[@]}"; do
   node="$(echo "${raw}" | xargs)"
   if [[ -z "${node}" ]]; then
@@ -44,6 +45,17 @@ arr = json.loads(sys.argv[1])
 node = sys.argv[2]
 cap = json.loads(sys.argv[3])
 arr.append({"kind": "node", "url": node, "cap": cap})
+print(json.dumps(arr, separators=(",", ":")))
+PY
+)"
+  normalized_nodes_json="$(python3 - <<'PY' "${normalized_nodes_json}" "${node}"
+import json, sys
+from urllib.parse import urlparse
+arr = json.loads(sys.argv[1])
+u = urlparse(sys.argv[2])
+host = (u.hostname or "").strip().lower()
+port = u.port or (443 if u.scheme == "https" else 80)
+arr.append(f"{host}:{port}")
 print(json.dumps(arr, separators=(",", ":")))
 PY
 )"
@@ -82,16 +94,28 @@ if [[ "${healthy_count}" -lt "${EXPECTED_HEALTHY_NODES}" ]]; then
 fi
 
 targets_raw="$(curl -fsS "${PROMETHEUS_URL}/api/v1/targets")"
-python3 - <<'PY' "${targets_raw}" "${EXPECTED_HEALTHY_NODES}"
+python3 - <<'PY' "${targets_raw}" "${EXPECTED_HEALTHY_NODES}" "${normalized_nodes_json}"
 import json, sys
 d = json.loads(sys.argv[1])
 expected = int(sys.argv[2])
+expected_instances = set(json.loads(sys.argv[3]))
 targets = d.get("data", {}).get("activeTargets", [])
 masque_targets = [t for t in targets if t.get("labels", {}).get("job") == "masque-server"]
 healthy = [t for t in masque_targets if t.get("health") == "up"]
 if len(healthy) < expected:
     raise SystemExit(f"prometheus healthy masque-server targets={len(healthy)} < expected={expected}")
 print(f"[multi-node-ha] prometheus healthy masque-server targets={len(healthy)}")
+
+healthy_instances = set()
+for t in healthy:
+    inst = str((t.get("labels", {}) or {}).get("instance", "")).strip().lower()
+    if inst:
+        healthy_instances.add(inst)
+missing = sorted(expected_instances - healthy_instances)
+if missing:
+    raise SystemExit(f"expected node instances not healthy in prometheus: {missing}")
+print(f"[multi-node-ha] expected instances healthy={sorted(expected_instances)}")
+
 print("[multi-node-ha] prometheus target detail markdown follows")
 print("### Prometheus Target Detail (masque-server)")
 print("")

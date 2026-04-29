@@ -197,6 +197,7 @@ Optional load variables:
 - `RUN_MULTI_NODE_HA_CHECK=1` run multi-node HA gate (`MASQUE_NODE_URLS=http://10.0.0.11:8443,http://10.0.0.12:8443`, `EXPECTED_HEALTHY_NODES=2`) and verify Prometheus has at least N healthy `job="masque-server"` targets; optional `MASQUE_LB_URL=http://masque-lb:8443` enables LB health/capability consistency check
 - When HA check runs, `full-check` report includes a **Multi-node HA Capability Matrix** section (node/LB endpoint vs key capability flags) for ops/audit evidence.
 - HA check also includes **Prometheus Target Detail (masque-server)** (instance/health/scrape_url/last_error) to quickly identify failing node targets.
+- HA check enforces node-list matching: normalized `MASQUE_NODE_URLS` host:port entries must appear as healthy Prometheus `instance` targets (prevents false pass by unrelated healthy nodes).
 - `CONTROL_PLANE_URL`, `MASQUE_SERVER_URL`, `PROMETHEUS_URL`, `ALERTMANAGER_URL`
 - `phase2b-kernel-check.sh` also enforces current product boundary in capabilities: `CONNECT-IP TCP or IPv6 datagram relay` remains listed as `not_implemented` for this phase.
 
