@@ -87,10 +87,25 @@ import json, sys
 d = json.loads(sys.argv[1])
 expected = int(sys.argv[2])
 targets = d.get("data", {}).get("activeTargets", [])
-healthy = [t for t in targets if t.get("labels", {}).get("job") == "masque-server" and t.get("health") == "up"]
+masque_targets = [t for t in targets if t.get("labels", {}).get("job") == "masque-server"]
+healthy = [t for t in masque_targets if t.get("health") == "up"]
 if len(healthy) < expected:
     raise SystemExit(f"prometheus healthy masque-server targets={len(healthy)} < expected={expected}")
 print(f"[multi-node-ha] prometheus healthy masque-server targets={len(healthy)}")
+print("[multi-node-ha] prometheus target detail markdown follows")
+print("### Prometheus Target Detail (masque-server)")
+print("")
+print("| instance | health | scrape_url | last_error |")
+print("|---|---|---|---|")
+for t in masque_targets:
+    labels = t.get("labels", {})
+    instance = labels.get("instance", "-")
+    health = t.get("health", "-")
+    scrape = t.get("scrapeUrl", "-")
+    err = t.get("lastError", "") or "-"
+    # Keep markdown table single-line friendly.
+    err = str(err).replace("|", "/").replace("\n", " ").strip() or "-"
+    print(f"| {instance} | {health} | {scrape} | {err} |")
 PY
 
 if [[ -n "${MASQUE_LB_URL}" ]]; then

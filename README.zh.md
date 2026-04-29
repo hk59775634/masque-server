@@ -172,6 +172,7 @@ sudo go run ./cmd/client connect-ip-tun [-masque-server URL] [-connect-ip-udp ho
   - 可选鉴权硬化门禁：设置 `run_authz_hmac_check=true`；若 staging 已开启 `MASQUE_AUTHORIZE_HMAC_REQUIRED=true`，同步设置 `authz_hmac_required_expected=1`，并配置仓库 secret `STAGING_AUTHZ_HMAC_SECRET`
   - 可选多节点 HA 门禁：设置 `run_multi_node_ha_check=true`，并填写 `masque_node_urls`（逗号分隔节点 URL）与 `expected_healthy_nodes`（如 `2`）；可选再填 `masque_lb_url` 用于校验 LB 的能力画像与后端节点基线一致
   - 开启 HA 门禁后，`full-check` 报告会附带 **Multi-node HA Capability Matrix**（节点/LB 与关键能力标志）以便运维验收留档。
+  - 同时会输出 **Prometheus Target Detail (masque-server)**（`instance/health/scrape_url/last_error`），便于快速定位异常节点抓取。
   - `phase2b-kernel-check.sh` 会额外校验当前产品边界：capabilities 中仍需声明 `CONNECT-IP TCP or IPv6 datagram relay` 为 `not_implemented`（避免误把 IPv6/TCP relay 视为已交付）。
 
 ### VPN 托管 NAT 故障注入（Actions + 本机）
