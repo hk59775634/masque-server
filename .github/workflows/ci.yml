@@ -16,6 +16,22 @@ on:
         options:
           - "false"
           - "true"
+      run_authz_hmac_check:
+        description: "Run control-plane authorize HMAC staging gate"
+        required: true
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+      authz_hmac_required_expected:
+        description: "Expect unsigned /server/authorize to fail (1=true,0=false)"
+        required: false
+        default: "0"
+        type: choice
+        options:
+          - "0"
+          - "1"
       control_plane_url:
         description: "Staging control-plane base URL"
         required: false
@@ -117,7 +133,7 @@ jobs:
           docker compose -f docker/e2e/docker-compose.yml down -v
 
   phase2b-kernel-staging:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_phase2b_kernel == 'true' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && (inputs.run_phase2b_kernel == 'true' || inputs.run_authz_hmac_check == 'true') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -129,10 +145,13 @@ jobs:
           ALERTMANAGER_URL: ${{ inputs.alertmanager_url }}
           LOKI_URL: ${{ inputs.loki_url }}
           GRAFANA_URL: ${{ inputs.grafana_url }}
-          RUN_PHASE2B_KERNEL: "1"
+          RUN_PHASE2B_KERNEL: ${{ inputs.run_phase2b_kernel == 'true' && '1' || '0' }}
+          RUN_AUTHZ_HMAC_CHECK: ${{ inputs.run_authz_hmac_check == 'true' && '1' || '0' }}
+          AUTHZ_HMAC_REQUIRED_EXPECTED: ${{ inputs.authz_hmac_required_expected }}
+          AUTHZ_HMAC_SECRET: ${{ secrets.STAGING_AUTHZ_HMAC_SECRET }}
           RUN_K6: "0"
           SKIP_LOKI: "0"
         run: |
           set -euo pipefail
-          chmod +x scripts/staging/full-check.sh scripts/staging/phase2b-kernel-check.sh
+          chmod +x scripts/staging/full-check.sh scripts/staging/phase2b-kernel-check.sh scripts/staging/authz-hmac-check.sh
           ./scripts/staging/full-check.sh

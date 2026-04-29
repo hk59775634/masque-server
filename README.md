@@ -193,12 +193,14 @@ Optional load variables:
 `full-check.sh` options:
 - `RUN_K6=1` enable load test inside full check
 - `RUN_PHASE2B_KERNEL=1` validate CONNECT-IP kernel-forward/shared/NAT capabilities + metrics + alerts
+- `RUN_AUTHZ_HMAC_CHECK=1` run control-plane `/api/v1/server/authorize` HMAC gate check (requires `AUTHZ_HMAC_SECRET` for signed path; set `AUTHZ_HMAC_REQUIRED_EXPECTED=1` when staging enforces required mode)
 - `CONTROL_PLANE_URL`, `MASQUE_SERVER_URL`, `PROMETHEUS_URL`, `ALERTMANAGER_URL`
 
 GitHub Actions staging gate:
 - Open `CI` workflow via `workflow_dispatch`
 - Set `run_phase2b_kernel=true`, then provide staging URLs (`control_plane_url`, `masque_server_url`, `prometheus_url`, `alertmanager_url`, optional `loki_url`/`grafana_url`)
 - The job `phase2b-kernel-staging` runs `scripts/staging/full-check.sh` with `RUN_PHASE2B_KERNEL=1`
+- Optional auth hardening gate: set `run_authz_hmac_check=true`, provide secret `STAGING_AUTHZ_HMAC_SECRET`, and set `authz_hmac_required_expected=1` after staging enables `MASQUE_AUTHORIZE_HMAC_REQUIRED=true`
 
 ### VPN NAT fault-injection (Actions + local)
 

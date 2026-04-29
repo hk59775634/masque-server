@@ -11,6 +11,8 @@ SKIP_LOKI="${SKIP_LOKI:-0}"
 GRAFANA_URL="${GRAFANA_URL:-http://127.0.0.1:3000}"
 RUN_K6="${RUN_K6:-0}"
 RUN_PHASE2B_KERNEL="${RUN_PHASE2B_KERNEL:-0}"
+RUN_AUTHZ_HMAC_CHECK="${RUN_AUTHZ_HMAC_CHECK:-0}"
+AUTHZ_HMAC_REQUIRED_EXPECTED="${AUTHZ_HMAC_REQUIRED_EXPECTED:-0}"
 
 STAMP="$(date +%Y%m%d-%H%M%S)"
 REPORT_DIR="${ROOT_DIR}/scripts/staging/reports"
@@ -32,6 +34,8 @@ echo "- loki: ${LOKI_URL} (SKIP_LOKI=${SKIP_LOKI})" >>"${REPORT_FILE}"
 echo "- grafana: ${GRAFANA_URL}" >>"${REPORT_FILE}"
 echo "- run_k6: ${RUN_K6}" >>"${REPORT_FILE}"
 echo "- run_phase2b_kernel: ${RUN_PHASE2B_KERNEL}" >>"${REPORT_FILE}"
+echo "- run_authz_hmac_check: ${RUN_AUTHZ_HMAC_CHECK}" >>"${REPORT_FILE}"
+echo "- authz_hmac_required_expected: ${AUTHZ_HMAC_REQUIRED_EXPECTED}" >>"${REPORT_FILE}"
 echo "" >>"${REPORT_FILE}"
 echo "## Checks" >>"${REPORT_FILE}"
 
@@ -119,6 +123,17 @@ if [[ "${RUN_PHASE2B_KERNEL}" == "1" ]]; then
   fi
 else
   info "phase2b kernel checks skipped (set RUN_PHASE2B_KERNEL=1 to enable)"
+fi
+
+if [[ "${RUN_AUTHZ_HMAC_CHECK}" == "1" ]]; then
+  info "running authorize HMAC checks"
+  if "${ROOT_DIR}/scripts/staging/authz-hmac-check.sh" >>"${REPORT_FILE}" 2>&1; then
+    pass "authz-hmac-check.sh"
+  else
+    fail "authz-hmac-check.sh"
+  fi
+else
+  info "authorize HMAC checks skipped (set RUN_AUTHZ_HMAC_CHECK=1 to enable)"
 fi
 
 echo "" >>"${REPORT_FILE}"

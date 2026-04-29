@@ -169,6 +169,7 @@ sudo go run ./cmd/client connect-ip-tun [-masque-server URL] [-connect-ip-udp ho
   - 触发 `CI` 的 `workflow_dispatch`
   - 设置 `run_phase2b_kernel=true`，并填写 staging 的 `control_plane_url/masque_server_url/prometheus_url/alertmanager_url`（可选 `loki_url/grafana_url`）
   - 会执行 `phase2b-kernel-staging` 任务，内部调用 `full-check.sh` 并开启 `RUN_PHASE2B_KERNEL=1`
+  - 可选鉴权硬化门禁：设置 `run_authz_hmac_check=true`；若 staging 已开启 `MASQUE_AUTHORIZE_HMAC_REQUIRED=true`，同步设置 `authz_hmac_required_expected=1`，并配置仓库 secret `STAGING_AUTHZ_HMAC_SECRET`
 
 ### VPN 托管 NAT 故障注入（Actions + 本机）
 
