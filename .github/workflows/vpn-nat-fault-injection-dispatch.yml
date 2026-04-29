@@ -1,12 +1,21 @@
-# Manual smoke: validates scripts/vpn-nat-backend-fault-injection.sh parses and --dry-run exits 0.
-# Full injection requires SSH to masque hosts; run locally (or a self-hosted runner) with:
-#   MASQUE_HOST=... ./scripts/vpn-nat-backend-fault-injection.sh
-# Optional: add repository/org secrets MASQUE_FAULT_INJECTION_HOST + SSH key on a private workflow copy.
+# Workflow: VPN NAT fault-injection helper (scripts/vpn-nat-backend-fault-injection.sh).
+#
+# Default job (always): bash -n + --dry-run on ubuntu-latest — no SSH.
+# Optional job: live SSH injection when workflow_dispatch enables it and secrets exist.
+#
+# Self-hosted runners: if GitHub-hosted cannot reach your masque host, register a
+# self-hosted runner for this repo and change `runs-on` for `remote-fault-injection`
+# below (e.g. runs-on: self-hosted).
 
 name: VPN NAT fault-injection script
 
 on:
   workflow_dispatch:
+    inputs:
+      run_remote_fault_injection:
+        description: "After smoke passes, SSH to masque and run full fault injection (needs secrets + network)"
+        type: boolean
+        default: false
 
 jobs:
   smoke:
@@ -20,3 +29,30 @@ jobs:
           bash -n scripts/vpn-nat-backend-fault-injection.sh
           ./scripts/vpn-nat-backend-fault-injection.sh --dry-run
           ./scripts/vpn-nat-backend-fault-injection.sh --dry-run --restore-only
+
+  remote-fault-injection:
+    needs: smoke
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_remote_fault_injection }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.FAULT_SSH_PRIVATE_KEY }}
+      - name: Live fault injection over SSH
+        env:
+          MASQUE_HOST: ${{ secrets.MASQUE_FAULT_INJECTION_HOST }}
+          CLIENT_HOST: ${{ secrets.MASQUE_FAULT_INJECTION_CLIENT_HOST }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${MASQUE_HOST:-}" ]]; then
+            echo "Missing secret MASQUE_FAULT_INJECTION_HOST (target masque SSH hostname or IP)." >&2
+            exit 1
+          fi
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          ssh-keyscan -H "${MASQUE_HOST}" >> ~/.ssh/known_hosts 2>/dev/null || true
+          printf '%s\n' 'Host *' '  StrictHostKeyChecking accept-new' >> ~/.ssh/config
+          chmod +x scripts/vpn-nat-backend-fault-injection.sh
+          export CLIENT_HOST="${CLIENT_HOST:-103.6.4.5}"
+          ./scripts/vpn-nat-backend-fault-injection.sh

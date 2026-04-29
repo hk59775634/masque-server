@@ -164,3 +164,15 @@ sudo go run ./cmd/client connect-ip-tun [-masque-server URL] [-connect-ip-udp ho
   - 触发 `CI` 的 `workflow_dispatch`
   - 设置 `run_phase2b_kernel=true`，并填写 staging 的 `control_plane_url/masque_server_url/prometheus_url/alertmanager_url`（可选 `loki_url/grafana_url`）
   - 会执行 `phase2b-kernel-staging` 任务，内部调用 `full-check.sh` 并开启 `RUN_PHASE2B_KERNEL=1`
+
+### VPN 托管 NAT 故障注入（Actions + 本机）
+
+- **GitHub Actions：** 打开 workflow **`VPN NAT fault-injection script`**（文件：`.github/workflows/vpn-nat-fault-injection-dispatch.yml`），路径：**Actions → VPN NAT fault-injection script → Run workflow**。
+  - 每次运行都会执行 **`smoke`**：对 `scripts/vpn-nat-backend-fault-injection.sh` 做 **`bash -n`**，并执行 **`--dry-run`** / **`--dry-run --restore-only`**（不 SSH）。
+  - 可选：勾选 **`run_remote_fault_injection`**，在 **`smoke` 通过后**以 **`root`** SSH 到 masque 执行完整脚本（与本机直接跑行为一致）。
+- **本机 / 跳板（生产环境更常见）：** `MASQUE_HOST=<masque_ip> ./scripts/vpn-nat-backend-fault-injection.sh`（**`--help`** 可见 **`--dry-run`、`--skip-*`、`--restore-only`** 等）。
+- **可选远程任务所需 Secrets**（仓库或组织级）：
+  - **`MASQUE_FAULT_INJECTION_HOST`** — SSH 目标（主机名或 IP），脚本使用 **`root@${MASQUE_FAULT_INJECTION_HOST}`**。
+  - **`FAULT_SSH_PRIVATE_KEY`** — 可登录该主机的私钥（由 **`webfactory/ssh-agent`** 加载）。
+  - **`MASQUE_FAULT_INJECTION_CLIENT_HOST`**（可选）— 传给压测的 **`CLIENT_HOST`**；未配置或为空时默认 **`103.6.4.5`**。
+- **网络：** GitHub 托管 runner 必须能访问 **`MASQUE_FAULT_INJECTION_HOST`** 的 SSH 端口。若 masque 仅在私网，请使用能出网的 **自建 runner**，并把 **`vpn-nat-fault-injection-dispatch.yml`** 里 **`remote-fault-injection`** 作业的 **`runs-on`** 改为例如 **`self-hosted`**。

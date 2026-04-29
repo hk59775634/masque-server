@@ -192,3 +192,15 @@ GitHub Actions staging gate:
 - Open `CI` workflow via `workflow_dispatch`
 - Set `run_phase2b_kernel=true`, then provide staging URLs (`control_plane_url`, `masque_server_url`, `prometheus_url`, `alertmanager_url`, optional `loki_url`/`grafana_url`)
 - The job `phase2b-kernel-staging` runs `scripts/staging/full-check.sh` with `RUN_PHASE2B_KERNEL=1`
+
+### VPN NAT fault-injection (Actions + local)
+
+- **GitHub Actions:** open workflow **`VPN NAT fault-injection script`** (`vpn-nat-fault-injection-dispatch.yml`) via **Actions → VPN NAT fault-injection script → Run workflow**.
+  - Every run executes **`smoke`**: `bash -n` on `scripts/vpn-nat-backend-fault-injection.sh` plus **`--dry-run`** / **`--dry-run --restore-only`** (no SSH).
+  - Optional: enable **`run_remote_fault_injection`** to run the full script after smoke passes (SSH as **`root`**, same behavior as local).
+- **Local / bastion (recommended for production hosts):** `MASQUE_HOST=<masque_ip> ./scripts/vpn-nat-backend-fault-injection.sh` (see `--help` for `--dry-run`, `--skip-*`, `--restore-only`).
+- **Secrets for the optional remote job** (repository or organization):
+  - **`MASQUE_FAULT_INJECTION_HOST`** — SSH target (hostname or IP) for `root@${MASQUE_FAULT_INJECTION_HOST}`.
+  - **`FAULT_SSH_PRIVATE_KEY`** — private key with access to that host (OpenSSH PEM / RSA / ed25519; `webfactory/ssh-agent` loads it).
+  - **`MASQUE_FAULT_INJECTION_CLIENT_HOST`** (optional) — forwarded to **`CLIENT_HOST`** for `vpn-tunnel-bench.sh`; defaults to **`103.6.4.5`** when unset or empty.
+- **Networking:** GitHub-hosted runners must reach the SSH port on **`MASQUE_FAULT_INJECTION_HOST`**. If the masque host is only on a private network, use a **self-hosted runner** with outbound SSH access and set **`runs-on`** for job **`remote-fault-injection`** in `vpn-nat-fault-injection-dispatch.yml` (for example `runs-on: self-hosted`).
