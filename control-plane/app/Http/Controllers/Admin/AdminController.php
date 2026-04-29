@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\AdminOperationToken;
 use App\Models\AuditLog;
 use App\Models\Device;
+use App\Models\Role;
 use App\Models\User;
 use App\Services\MasquePrometheusMetrics;
 use Illuminate\Http\RedirectResponse;
@@ -23,6 +24,7 @@ class AdminController extends Controller
     public function index(Request $request): View
     {
         $this->authorizeAdmin($request);
+        $roles = Role::query()->orderBy('name')->get();
         $users = User::query()->orderBy('id')->get();
         $devices = Device::query()->with('user')->orderByDesc('id')->get();
         $audits = $this->filteredAuditQuery($request)
@@ -93,6 +95,7 @@ class AdminController extends Controller
             'operationToken' => (string) $request->session()->get('operation_token', ''),
             'operationTokenExpiresAt' => (string) $request->session()->get('operation_token_expires_at', ''),
             'opsOverview' => $opsOverview,
+            'roles' => $roles,
         ]);
     }
 
@@ -154,6 +157,8 @@ class AdminController extends Controller
         $this->authorizeAdmin($request);
         $payload = $request->validate([
             'is_admin' => ['nullable', 'in:1'],
+            'role_ids' => ['nullable', 'array'],
+            'role_ids.*' => ['integer', 'exists:roles,id'],
             'operation_token' => ['nullable', 'string', 'max:32'],
             'route_mode' => ['required', 'in:all,split,custom'],
             'routes' => ['nullable', 'array'],
@@ -170,19 +175,34 @@ class AdminController extends Controller
         $policyRoutes = ['mode' => $payload['route_mode'], 'include' => $this->cleanStringArray($payload['routes'] ?? [])];
         $policyDns = ['servers' => $this->cleanStringArray($payload['dns_servers'] ?? [])];
         $afterIsAdmin = $request->boolean('is_admin');
-        $isHighRisk = ($user->is_admin !== $afterIsAdmin);
+        $adminRoleId = Role::query()->where('name', 'admin')->value('id');
+        $requestedRoleIds = collect($payload['role_ids'] ?? [])->map(fn ($id): int => (int) $id)->unique()->values();
+        if ($adminRoleId !== null) {
+            if ($afterIsAdmin && ! $requestedRoleIds->contains((int) $adminRoleId)) {
+                $requestedRoleIds->push((int) $adminRoleId);
+            }
+        }
+        $roleNamesByRequest = Role::query()->whereIn('id', $requestedRoleIds->all())->pluck('name')->values()->all();
+        $willBeAdmin = $afterIsAdmin || in_array('admin', $roleNamesByRequest, true);
+        $isHighRisk = ($user->is_admin !== $willBeAdmin);
         $this->assertHighRiskConfirmed($request, $isHighRisk, $payload['operation_token'] ?? null);
+        $beforeRoleNames = $user->roles()->pluck('name')->values()->all();
+        $user->roles()->sync($requestedRoleIds->all());
+        $afterRoleNames = $user->roles()->pluck('name')->values()->all();
+        $adminByRole = in_array('admin', $afterRoleNames, true);
         $before = [
             'policy_acl' => $user->policy_acl,
             'policy_routes' => $user->policy_routes,
             'policy_dns' => $user->policy_dns,
             'is_admin' => $user->is_admin,
+            'roles' => $beforeRoleNames,
         ];
         $after = [
             'policy_acl' => $policyAcl,
             'policy_routes' => $policyRoutes,
             'policy_dns' => $policyDns,
-            'is_admin' => $afterIsAdmin,
+            'is_admin' => $afterIsAdmin || $adminByRole,
+            'roles' => $afterRoleNames,
         ];
 
         $user->update([

@@ -435,6 +435,7 @@
                     $routeMode = $selectedUser->policy_routes['mode'] ?? 'all';
                     $routes = $selectedUser->policy_routes['include'] ?? ['0.0.0.0/1', '128.0.0.0/1'];
                     $dns = $selectedUser->policy_dns['servers'] ?? ['1.1.1.1', '8.8.8.8'];
+                    $selectedRoleIds = $selectedUser->roles->pluck('id')->map(fn($v) => (int) $v)->all();
                 @endphp
                 <h2>用户策略编辑：{{ $selectedUser->email }}</h2>
                 <form method="POST" action="{{ route('admin.users.policy', $selectedUser) }}" data-policy-form>
@@ -442,6 +443,21 @@
                     <div class="editor">
                         <div class="subcard">
                             <label><input type="checkbox" name="is_admin" value="1" {{ $selectedUser->is_admin ? 'checked' : '' }}> 管理员权限</label>
+                            <label>角色分配（RBAC）</label>
+                            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px;">
+                                @foreach(($roles ?? []) as $role)
+                                    <label style="display:flex;align-items:center;gap:6px;margin:0;">
+                                        <input
+                                            type="checkbox"
+                                            name="role_ids[]"
+                                            value="{{ $role->id }}"
+                                            {{ in_array((int) $role->id, $selectedRoleIds, true) ? 'checked' : '' }}
+                                            style="width:auto;margin:0;"
+                                        >
+                                        <span>{{ $role->display_name ?: $role->name }}</span>
+                                    </label>
+                                @endforeach
+                            </div>
                             <label>高危确认（仅在变更管理员权限时需要输入一次性确认码）</label>
                             <input name="operation_token" placeholder="例如 ABC-DEF">
                             <label>路由模式</label>

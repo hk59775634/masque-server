@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Models\Role;
 use App\Models\User;
 use Illuminate\Console\Command;
 
@@ -23,6 +24,10 @@ class PromoteUserAdminCommand extends Command
 
         $user->is_admin = true;
         $user->save();
+        $adminRoleId = Role::query()->where('name', 'admin')->value('id');
+        if ($adminRoleId !== null) {
+            $user->roles()->syncWithoutDetaching([(int) $adminRoleId]);
+        }
 
         $this->info("User {$user->email} (id={$user->id}) is now admin.");
 

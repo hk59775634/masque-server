@@ -13,7 +13,7 @@ class EnsureAdminSessionFresh
     public function handle(Request $request, Closure $next): Response|RedirectResponse
     {
         $user = $request->user();
-        if (!$user || !$user->is_admin) {
+        if (!$user || !$user->hasPermission('admin.access')) {
             return $next($request);
         }
 
