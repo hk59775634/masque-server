@@ -1,0 +1,22 @@
+# Manual smoke: validates scripts/vpn-nat-backend-fault-injection.sh parses and --dry-run exits 0.
+# Full injection requires SSH to masque hosts; run locally (or a self-hosted runner) with:
+#   MASQUE_HOST=... ./scripts/vpn-nat-backend-fault-injection.sh
+# Optional: add repository/org secrets MASQUE_FAULT_INJECTION_HOST + SSH key on a private workflow copy.
+
+name: VPN NAT fault-injection script
+
+on:
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntax check and dry-run
+        run: |
+          set -euo pipefail
+          chmod +x scripts/vpn-nat-backend-fault-injection.sh
+          bash -n scripts/vpn-nat-backend-fault-injection.sh
+          ./scripts/vpn-nat-backend-fault-injection.sh --dry-run
+          ./scripts/vpn-nat-backend-fault-injection.sh --dry-run --restore-only

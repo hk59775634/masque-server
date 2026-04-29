@@ -33,3 +33,39 @@ MasqueConnectIPRoutePushACLDenied:
   commands:
     - journalctl -u masque-server -n 200 --no-pager | rg "route push|acl_denied"
     - curl -sS http://127.0.0.1:8443/v1/masque/capabilities | jq '.tunnel.quic.connect_ip'
+
+MasqueConnectIPTunManagedNATApplyErrors:
+  steps:
+    - Verify CONNECT_IP_TUN_EGRESS_IFACE points at the WAN-facing interface and exists at runtime.
+    - Confirm nft or iptables is available per CONNECT_IP_TUN_NAT_BACKEND; check journal for apply failures.
+    - Run scripts/deploy/dataplane-preflight.sh on the host after deploy.
+  commands:
+    - ip route show
+    - journalctl -u masque-server -n 200 --no-pager | rg "managed NAT|nft|iptables|apply"
+    - curl -sS --max-time 5 http://127.0.0.1:8443/metrics | rg "masque_connect_ip_tun_managed_nat_apply_total"
+
+MasqueConnectIPTunManagedNATNftFallback:
+  steps:
+    - Inspect rate(masque_connect_ip_tun_managed_nat_backend_total{backend="nftables",result="fallback"}); nft apply is failing.
+    - Ensure nft is installed, kernel supports nft, and ruleset updates are permitted (root/CAP_NET_ADMIN).
+    - Temporarily allow iptables fallback only after fixing root cause; use scripts/vpn-nat-backend-fault-injection.sh to reproduce nft-only on staging.
+  commands:
+    - command -v nft; nft list ruleset 2>&1 | head -n 40
+    - journalctl -u masque-server -n 200 --no-pager | rg "managed NAT|nft|fallback"
+    - curl -sS --max-time 5 http://127.0.0.1:8443/metrics | rg "masque_connect_ip_tun_managed_nat_backend_total"
+
+MasqueConnectIPTunSharedBindingConflictsHigh:
+  steps:
+    - Check shared TUN mode and overlapping client source addresses or ACL ranges.
+    - Review binding TTL and logs for conflict reasons; segment clients if collisions are expected.
+  commands:
+    - journalctl -u masque-server -n 200 --no-pager | rg "shared|binding|conflict"
+    - curl -sS --max-time 5 http://127.0.0.1:8443/metrics | rg "masque_connect_ip_tun_shared_binding"
+
+MasqueConnectIPTunSharedBindingActiveReassignHigh:
+  steps:
+    - Same as shared binding conflicts; focus on live sessions reusing the same mapping (reason active_reassign).
+    - Verify unique stable addressing per active tunnel where possible.
+  commands:
+    - journalctl -u masque-server -n 200 --no-pager | rg "shared|binding|conflict|active"
+    - curl -sS --max-time 5 http://127.0.0.1:8443/metrics | rg "masque_connect_ip_tun_shared_binding_conflict_reasons_total"
