@@ -36,6 +36,6 @@ Override URLs if you change the compose project (defaults use Docker DNS names `
 
 ## Notes
 
-- Compose defaults use **HTTP** from control-plane to masque (`MASQUE_SERVER_URL=http://masque:8443`). If you run masque with **`LISTEN_TLS_CERT` / `LISTEN_TLS_KEY`**, set **`MASQUE_SERVER_URL=https://masque:8443`** (and mount a CA the PHP image trusts, or use dev certs consistently); the `e2e` container must reach masque over the same scheme.
+- Compose defaults use **HTTP** from control-plane to masque (`MASQUE_SERVER_URL=http://masque:8443`). If you run masque with **`LISTEN_TLS_CERT` / `LISTEN_TLS_KEY`**, set **`MASQUE_SERVER_URL=https://masque:8443`** and ensure the PHP image trusts the server chain (**public CA / ACME**, or a **dev-only** cert injected for CI — **not** an org-wide private CA product requirement); the `e2e` container must reach masque over the same scheme.
 - Control-plane entrypoint runs `composer install --no-dev` on each container start (cold start ~1–2 minutes on first pull).
 - Host `database/*.sqlite` files are excluded from the build context (`.dockerignore`); the container always starts with an empty SQLite file and full migrations.

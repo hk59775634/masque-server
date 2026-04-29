@@ -17,7 +17,7 @@
 - **Phase 2a**：**`POST /v1/masque/tcp-probe`**（服务端代拨 TCP）、主监听可选 **HTTPS**、能力字段 `tunnel.phase2a`。
 - **Phase 2b（stub，本仓库已闭环）**：**CONNECT-IP 桩** + Linux **`connect-ip-tun`**（TUN、胶囊、分段默认路由、DNS 覆盖与退出恢复、**`-dns-resolvectl` 失败时可回退 `resolv.conf`（`-dns-resolvectl-fallback`）**、重连与运维向参数、`doctor -connect-ip`）；可选 **`CONNECT_IP_UDP_RELAY`** / **`CONNECT_IP_ICMP_RELAY`** / **`CONNECT_IP_ROUTE_ADV_CIDR`**；masque 在 **Linux** 上可选 **`CONNECT_IP_TUN_FORWARD`**（内核 TUN 转发）+ **`CONNECT_IP_TUN_SHARED`**（共享 TUN + 目的 IP 分流）+ **`CONNECT_IP_TUN_LINK_UP`**（`ip link up`）+ **`CONNECT_IP_TUN_MANAGED_NAT`**（托管 NAT 自动化，需 egress 配置）。**仍非** masque 侧全量策略管理器。
 - **Phase 2b（Linux 数据面 P0，主线已落地）**：托管 NAT **nft 优先**与可配置 **iptables 回退**、**`scripts/deploy/dataplane-preflight.sh`**、托管 NAT / 共享绑定指标与告警（含 nft fallback、active reassign）、**`scripts/vpn-nat-backend-fault-injection.sh`** 与 Actions **`VPN NAT fault-injection script`**（语法 + `--dry-run`）。说明见 **`docs/runbooks/connect-ip-tun-forward-linux.md`**。
-- **Phase 2b（生产级，仍待办）**：设备 **mTLS**、控制面↔masque **双向 TLS / 非 REST 硬化**、**RBAC**；相对当前实现仍缺 **全协议 / IPv6 端到端内核转发**、**多节点与高可用** 等（`开发需求.md` §6、§2.2）。
+- **Phase 2b（生产级，仍待办）**：细粒度 **RBAC**、控制面↔masque **通道硬化**（HTTPS 上强化或后续 gRPC over **公网可信 TLS**）；**全协议 / 全 TCP 内核路径**、**多节点与高可用** 等。**不规划**：设备 **mTLS/客户端证书身份**、组织级**自建 CA 向终端签发/吊销**；**数据面 IPv6 生产线**不在本期与短期范围（见 `开发需求.md` §2.3）。
 
 ## QUIC / CONNECT-IP 桩（masque-server）
 
@@ -33,7 +33,7 @@ go run ./cmd/server
 ```
 
 - 与主 TCP 监听（默认 `:8443`）不同，**QUIC 使用独立 UDP 端口**（此处 `:8444`）。
-- TLS 为进程内 **自签名** 证书，仅用于开发/联调。
+- **开发/联调**：QUIC 等进程内监听可使用**临时自签** TLS。**对公暴露的 HTTPS**（控制面 Web/API、masque 主入口等）生产环境采用 **ACME 等公网可信证书**，不以自建 CA 作为组织信任根（与 `开发需求.md` §2.3、§5.3 一致）。
 
 ### 协议行为（摘要）
 
@@ -41,7 +41,7 @@ go run ./cmd/server
 - **200** 响应带 **`Capsule-Protocol: ?1`**，流上解析 **RFC 9297** capsule；**RFC 9484** 的 **ROUTE_ADVERTISEMENT** / **ADDRESS_REQUEST** / **ADDRESS_ASSIGN** 等按桩逻辑处理（路由需在设备 ACL 的 `allow[].cidr` 内；**ADDRESS_REQUEST** 应答为文档地址 **192.0.2.1/32**、**2001:db8::1/128** 等，除非客户端请求且通过 ACL 的具体地址）。
 - **HTTP Datagram（RFC 9297）**：在 QUIC 上协商；载荷前导 **QUIC varint Context ID**（**0** 表示后跟完整 **IP 包**）。非零 Context ID 默认丢弃，除非设置 **`CONNECT_IP_STUB_ECHO_CONTEXTS`**（仅开发）。
 - **TUN 转发**（Linux **`CONNECT_IP_TUN_FORWARD`**）：单帧 Datagram 所承载的内层 IP 有上界（当前 **2048 B**，含 Context **0** 前缀），需与 **`CONNECT_IP_TUN_MTU`**（`ip link set mtu`）及可选 **`CONNECT_IP_TUN_MANAGED_NAT`** 下的 **TCPMSS**（**`CONNECT_IP_TUN_TCP_MSS`** 可覆盖）一致，避免大包在隧道上被静默丢弃。
-- 内层若解析为 **IPv4/IPv6**，使用与 **`POST /connect`** 相同的 **`allow` cidr / protocol / port** 做 ACL；通过则默认 **原样回显（echo）** 整帧 Datagram；非 IP 内层按不透明 echo。
+- 内层若解析为 **IPv4**（及桩上有限的 **IPv6** 解析用于 echo/ACL 实验），使用与 **`POST /connect`** 相同的 **`allow` cidr / protocol / port** 做 ACL；**生产数据面以 IPv4 为范围**（IPv6 隧道/NAT 不在短期规划）。通过则默认 **原样回显（echo）** 整帧 Datagram；非 IP 内层按不透明 echo。
 - **不是**内核路由或完整路由器；完整 **TUN/内核转发** 在客户端侧见下节「Linux TUN」。
 
 ### 环境变量（开发常用）

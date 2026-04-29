@@ -1,5 +1,7 @@
 # CONNECT-IP host TUN bridge (Linux) — operator notes
 
+**Scope:** This runbook targets **IPv4** forwarding, SNAT, and client IPv4 addressing on the host. **IPv6 dataplane (TUN, managed NAT, production forwarding)** is **not** a near-term product commitment — see **`开发需求.md` §2.3**.
+
 masque-server can set **`CONNECT_IP_TUN_FORWARD=1`** so each CONNECT-IP session opens a **host TUN** and bridges **RFC 9484 Context ID 0** IP datagrams to that interface after ACL (and after optional UDP/ICMP relay). By default this is forwarding-only; with **`CONNECT_IP_TUN_MANAGED_NAT=1`** it can apply host networking automation.
 
 Optional **`CONNECT_IP_TUN_LINK_UP=1`** (with **`CONNECT_IP_TUN_FORWARD`**): after each successful TUN open, masque-server runs **`ip link set dev <ifname> up`** (best-effort; requires **`ip`** on **`PATH`** and usually **`CAP_NET_ADMIN`**). This does not replace full routing/SNAT setup below.
