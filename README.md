@@ -194,6 +194,7 @@ Optional load variables:
 - `RUN_K6=1` enable load test inside full check
 - `RUN_PHASE2B_KERNEL=1` validate CONNECT-IP kernel-forward/shared/NAT capabilities + metrics + alerts
 - `RUN_AUTHZ_HMAC_CHECK=1` run control-plane `/api/v1/server/authorize` HMAC gate check (requires `AUTHZ_HMAC_SECRET` for signed path; set `AUTHZ_HMAC_REQUIRED_EXPECTED=1` when staging enforces required mode)
+- `RUN_MULTI_NODE_HA_CHECK=1` run multi-node HA gate (`MASQUE_NODE_URLS=http://10.0.0.11:8443,http://10.0.0.12:8443`, `EXPECTED_HEALTHY_NODES=2`) and verify Prometheus has at least N healthy `job="masque-server"` targets
 - `CONTROL_PLANE_URL`, `MASQUE_SERVER_URL`, `PROMETHEUS_URL`, `ALERTMANAGER_URL`
 - `phase2b-kernel-check.sh` also enforces current product boundary in capabilities: `CONNECT-IP TCP or IPv6 datagram relay` remains listed as `not_implemented` for this phase.
 
@@ -202,6 +203,7 @@ GitHub Actions staging gate:
 - Set `run_phase2b_kernel=true`, then provide staging URLs (`control_plane_url`, `masque_server_url`, `prometheus_url`, `alertmanager_url`, optional `loki_url`/`grafana_url`)
 - The job `phase2b-kernel-staging` runs `scripts/staging/full-check.sh` with `RUN_PHASE2B_KERNEL=1`
 - Optional auth hardening gate: set `run_authz_hmac_check=true`, provide secret `STAGING_AUTHZ_HMAC_SECRET`, and set `authz_hmac_required_expected=1` after staging enables `MASQUE_AUTHORIZE_HMAC_REQUIRED=true`
+- Optional HA gate: set `run_multi_node_ha_check=true`, provide `masque_node_urls` (comma-separated node base URLs), and `expected_healthy_nodes` (e.g. `2`)
 
 ### VPN NAT fault-injection (Actions + local)
 

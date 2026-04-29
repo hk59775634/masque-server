@@ -13,6 +13,8 @@ RUN_K6="${RUN_K6:-0}"
 RUN_PHASE2B_KERNEL="${RUN_PHASE2B_KERNEL:-0}"
 RUN_AUTHZ_HMAC_CHECK="${RUN_AUTHZ_HMAC_CHECK:-0}"
 AUTHZ_HMAC_REQUIRED_EXPECTED="${AUTHZ_HMAC_REQUIRED_EXPECTED:-0}"
+RUN_MULTI_NODE_HA_CHECK="${RUN_MULTI_NODE_HA_CHECK:-0}"
+EXPECTED_HEALTHY_NODES="${EXPECTED_HEALTHY_NODES:-2}"
 
 STAMP="$(date +%Y%m%d-%H%M%S)"
 REPORT_DIR="${ROOT_DIR}/scripts/staging/reports"
@@ -36,6 +38,8 @@ echo "- run_k6: ${RUN_K6}" >>"${REPORT_FILE}"
 echo "- run_phase2b_kernel: ${RUN_PHASE2B_KERNEL}" >>"${REPORT_FILE}"
 echo "- run_authz_hmac_check: ${RUN_AUTHZ_HMAC_CHECK}" >>"${REPORT_FILE}"
 echo "- authz_hmac_required_expected: ${AUTHZ_HMAC_REQUIRED_EXPECTED}" >>"${REPORT_FILE}"
+echo "- run_multi_node_ha_check: ${RUN_MULTI_NODE_HA_CHECK}" >>"${REPORT_FILE}"
+echo "- expected_healthy_nodes: ${EXPECTED_HEALTHY_NODES}" >>"${REPORT_FILE}"
 echo "" >>"${REPORT_FILE}"
 echo "## Checks" >>"${REPORT_FILE}"
 
@@ -134,6 +138,17 @@ if [[ "${RUN_AUTHZ_HMAC_CHECK}" == "1" ]]; then
   fi
 else
   info "authorize HMAC checks skipped (set RUN_AUTHZ_HMAC_CHECK=1 to enable)"
+fi
+
+if [[ "${RUN_MULTI_NODE_HA_CHECK}" == "1" ]]; then
+  info "running multi-node HA checks"
+  if "${ROOT_DIR}/scripts/staging/multi-node-ha-check.sh" >>"${REPORT_FILE}" 2>&1; then
+    pass "multi-node-ha-check.sh"
+  else
+    fail "multi-node-ha-check.sh"
+  fi
+else
+  info "multi-node HA checks skipped (set RUN_MULTI_NODE_HA_CHECK=1 to enable)"
 fi
 
 echo "" >>"${REPORT_FILE}"

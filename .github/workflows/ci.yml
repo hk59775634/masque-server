@@ -32,6 +32,24 @@ on:
         options:
           - "0"
           - "1"
+      run_multi_node_ha_check:
+        description: "Run staging multi-node HA gate"
+        required: true
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+      expected_healthy_nodes:
+        description: "Expected healthy masque-server targets in HA gate"
+        required: false
+        default: "2"
+        type: string
+      masque_node_urls:
+        description: "Comma-separated masque node URLs for HA gate"
+        required: false
+        default: ""
+        type: string
       control_plane_url:
         description: "Staging control-plane base URL"
         required: false
@@ -133,7 +151,7 @@ jobs:
           docker compose -f docker/e2e/docker-compose.yml down -v
 
   phase2b-kernel-staging:
-    if: ${{ github.event_name == 'workflow_dispatch' && (inputs.run_phase2b_kernel == 'true' || inputs.run_authz_hmac_check == 'true') }}
+    if: ${{ github.event_name == 'workflow_dispatch' && (inputs.run_phase2b_kernel == 'true' || inputs.run_authz_hmac_check == 'true' || inputs.run_multi_node_ha_check == 'true') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -149,9 +167,12 @@ jobs:
           RUN_AUTHZ_HMAC_CHECK: ${{ inputs.run_authz_hmac_check == 'true' && '1' || '0' }}
           AUTHZ_HMAC_REQUIRED_EXPECTED: ${{ inputs.authz_hmac_required_expected }}
           AUTHZ_HMAC_SECRET: ${{ secrets.STAGING_AUTHZ_HMAC_SECRET }}
+          RUN_MULTI_NODE_HA_CHECK: ${{ inputs.run_multi_node_ha_check == 'true' && '1' || '0' }}
+          EXPECTED_HEALTHY_NODES: ${{ inputs.expected_healthy_nodes }}
+          MASQUE_NODE_URLS: ${{ inputs.masque_node_urls }}
           RUN_K6: "0"
           SKIP_LOKI: "0"
         run: |
           set -euo pipefail
-          chmod +x scripts/staging/full-check.sh scripts/staging/phase2b-kernel-check.sh scripts/staging/authz-hmac-check.sh
+          chmod +x scripts/staging/full-check.sh scripts/staging/phase2b-kernel-check.sh scripts/staging/authz-hmac-check.sh scripts/staging/multi-node-ha-check.sh
           ./scripts/staging/full-check.sh
