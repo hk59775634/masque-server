@@ -13,7 +13,7 @@
 ### 当前开发进度（简要）
 
 - **已完成（含 Phase 2a + Phase 2b stub + Linux 数据面 P0）**：端到端激活/连接桩（含 Docker E2E）、`MASQUE_SERVER_URL`、`connect -dry-run`、连接重试、会话 ID、运行时状态与 `status` 摘要、`disconnect` 幂等、Prometheus（含 authorize、tcp-probe、CONNECT-IP 指标与告警）、masque **X-Request-ID** 与 `/connect` 日志、`/connect` **64KiB** 请求体上限、**tcp-probe** 与 **`doctor -tcp-probe`**、可选 **`LISTEN_TLS_*`** 主监听 TLS、客户端为每次 POST 带 **X-Request-ID**；**CONNECT-IP stub** + **`connect-ip-tun`**（重连、日志节流、会话/拨号失败上限、分段默认路由、DNS 覆盖与恢复、**resolvectl 失败回退 resolv.conf**）；masque 可选 **`CONNECT_IP_TUN_FORWARD`** / **`CONNECT_IP_TUN_LINK_UP`** / **`CONNECT_IP_TUN_MANAGED_NAT`**（Linux：每会话或共享 TUN、托管 NAT **nft/iptables**、deploy **preflight**、故障注入与 CI smoke）。
-- **未开始（生产 Phase 2b 余项）**：细粒度 **RBAC**、控制面↔masque **通道硬化**（**公网 TLS / ACME** 原则）、相对现状仍缺的 **全 TCP 内核路径 / 多节点 HA**。**不规划**：设备 **mTLS**、组织级**自建 CA 设备证书**；**IPv6 数据面**不在短期范围（`开发需求.md` §2.3）。
+- **进行中（生产 Phase 2b 余项）**：细粒度 **RBAC**（基础表/权限中间件已落地，仍需管理界面与授权策略完善）、控制面↔masque **通道硬化**（HMAC 签名已支持，待强制化 rollout）、相对现状仍缺的 **全 TCP 内核路径 / 多节点 HA**。**不规划**：设备 **mTLS**、组织级**自建 CA 设备证书**；**IPv6 数据面**不在短期范围（`开发需求.md` §2.3）。
 
 This repository contains a closed-loop implementation and M2 upgrades:
 

@@ -12,6 +12,19 @@
   - `http://127.0.0.1:8443/healthz`
   - Prometheus targets all `UP`.
 
+### TLS / ACME baseline (required)
+
+- Public endpoints (control-plane Web/API and public masque HTTPS entry) must use **publicly trusted certificates**.
+- Recommended approach: **ACME** automation (e.g. certbot / acme.sh / cloud LB managed certs).
+- Private CA for endpoint identity is **out of scope** for this project line; do not rely on self-signed chains in production.
+- Keep renewal SLO explicit:
+  - auto-renew job enabled
+  - renewal dry-run tested
+  - alert if cert expires within 21 days
+- Verify server names and SANs match:
+  - control-plane domain(s): e.g. `www.afbuyers.com`
+  - masque public domain(s): e.g. `masque.afbuyers.com`
+
 ## 2. Deploy
 
 1. Pull latest code to release host.
@@ -32,6 +45,14 @@
 - Alertmanager:
   - run `./scripts/alerts/send-test-alert.sh`
   - verify webhook receiver/notifier got alert.
+
+### TLS checks after deploy
+
+- Verify certificate issuer/trust:
+  - `echo | openssl s_client -connect www.afbuyers.com:443 -servername www.afbuyers.com 2>/dev/null | openssl x509 -noout -issuer -subject -dates`
+- Verify masque public endpoint chain (replace hostname):
+  - `echo | openssl s_client -connect masque.afbuyers.com:443 -servername masque.afbuyers.com 2>/dev/null | openssl x509 -noout -issuer -subject -dates`
+- Ensure expiry (`notAfter`) meets policy and matches ACME expected renewal window.
 
 ## 4. Rollback
 

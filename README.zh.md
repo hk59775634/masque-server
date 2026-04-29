@@ -17,7 +17,7 @@
 - **Phase 2a**：**`POST /v1/masque/tcp-probe`**（服务端代拨 TCP）、主监听可选 **HTTPS**、能力字段 `tunnel.phase2a`。
 - **Phase 2b（stub，本仓库已闭环）**：**CONNECT-IP 桩** + Linux **`connect-ip-tun`**（TUN、胶囊、分段默认路由、DNS 覆盖与退出恢复、**`-dns-resolvectl` 失败时可回退 `resolv.conf`（`-dns-resolvectl-fallback`）**、重连与运维向参数、`doctor -connect-ip`）；可选 **`CONNECT_IP_UDP_RELAY`** / **`CONNECT_IP_ICMP_RELAY`** / **`CONNECT_IP_ROUTE_ADV_CIDR`**；masque 在 **Linux** 上可选 **`CONNECT_IP_TUN_FORWARD`**（内核 TUN 转发）+ **`CONNECT_IP_TUN_SHARED`**（共享 TUN + 目的 IP 分流）+ **`CONNECT_IP_TUN_LINK_UP`**（`ip link up`）+ **`CONNECT_IP_TUN_MANAGED_NAT`**（托管 NAT 自动化，需 egress 配置）。**仍非** masque 侧全量策略管理器。
 - **Phase 2b（Linux 数据面 P0，主线已落地）**：托管 NAT **nft 优先**与可配置 **iptables 回退**、**`scripts/deploy/dataplane-preflight.sh`**、托管 NAT / 共享绑定指标与告警（含 nft fallback、active reassign）、**`scripts/vpn-nat-backend-fault-injection.sh`** 与 Actions **`VPN NAT fault-injection script`**（语法 + `--dry-run`）。说明见 **`docs/runbooks/connect-ip-tun-forward-linux.md`**。
-- **Phase 2b（生产级，仍待办）**：细粒度 **RBAC**、控制面↔masque **通道硬化**（HTTPS 上强化或后续 gRPC over **公网可信 TLS**）；**全协议 / 全 TCP 内核路径**、**多节点与高可用** 等。**不规划**：设备 **mTLS/客户端证书身份**、组织级**自建 CA 向终端签发/吊销**；**数据面 IPv6 生产线**不在本期与短期范围（见 `开发需求.md` §2.3）。
+- **Phase 2b（生产级，进行中）**：细粒度 **RBAC**（基础表/权限中间件已落地，仍需管理界面与授权策略完善）、控制面↔masque **通道硬化**（已支持 authorize HMAC 签名，待强制化 rollout）；仍缺 **全协议 / 全 TCP 内核路径**、**多节点与高可用** 等。**不规划**：设备 **mTLS/客户端证书身份**、组织级**自建 CA 向终端签发/吊销**；**数据面 IPv6 生产线**不在本期与短期范围（见 `开发需求.md` §2.3）。
 
 ## QUIC / CONNECT-IP 桩（masque-server）
 
