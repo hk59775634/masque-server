@@ -24,6 +24,13 @@ dev = ci.get("dev") or {}
 for key in ("tun_forward_env", "tun_managed_nat_env", "tun_shared_env", "tun_shared_ttl_env"):
     if key not in dev:
         raise SystemExit(f"missing connect_ip.dev.{key}")
+not_impl = ((ci.get("rfc9484") or {}).get("not_implemented") or [])
+must_keep_not_impl = [
+    "CONNECT-IP TCP or IPv6 datagram relay",
+]
+for item in must_keep_not_impl:
+    if item not in not_impl:
+        raise SystemExit(f"missing expected scope guard in not_implemented: {item}")
 print("[phase2b-kernel] capabilities flags OK")
 PY
 

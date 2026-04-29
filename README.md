@@ -195,6 +195,7 @@ Optional load variables:
 - `RUN_PHASE2B_KERNEL=1` validate CONNECT-IP kernel-forward/shared/NAT capabilities + metrics + alerts
 - `RUN_AUTHZ_HMAC_CHECK=1` run control-plane `/api/v1/server/authorize` HMAC gate check (requires `AUTHZ_HMAC_SECRET` for signed path; set `AUTHZ_HMAC_REQUIRED_EXPECTED=1` when staging enforces required mode)
 - `CONTROL_PLANE_URL`, `MASQUE_SERVER_URL`, `PROMETHEUS_URL`, `ALERTMANAGER_URL`
+- `phase2b-kernel-check.sh` also enforces current product boundary in capabilities: `CONNECT-IP TCP or IPv6 datagram relay` remains listed as `not_implemented` for this phase.
 
 GitHub Actions staging gate:
 - Open `CI` workflow via `workflow_dispatch`
