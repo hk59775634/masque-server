@@ -19,7 +19,7 @@ This repository contains a closed-loop implementation and M2 upgrades:
 
 - `control-plane/`: Laravel API (`/api/v1/...`) for provisioning, token auth, and policy management
 - `masque-server/`: Go service with control-plane authorization callback and ACL enforcement
-- `linux-client/`: Go CLI with `activate` / `connect` / `status` / `disconnect` / `doctor` / `version` / `config …` and route/DNS apply+restore
+- `linux-client/`: Go CLI with `activate` / **`quick-login`** / `connect` / `status` / `disconnect` / `doctor` / `version` / `config …` and route/DNS apply+restore
 - `docs/adr/`: initial architecture decisions
 
 ## Step-by-step development baseline
@@ -44,6 +44,7 @@ This repository contains a closed-loop implementation and M2 upgrades:
    - `POST /api/v1/users`
    - `POST /api/v1/devices/activation-code`
    - `POST /api/v1/devices/activation-code-with-credentials` (email + password + `fingerprint` + optional `device_name`; returns `activation_code` for the same `POST /api/v1/activate` flow; throttled)
+   - **`POST /api/v1/devices/bootstrap`** (email + password + `fingerprint` + optional `device_name`; **one call** returns the same JSON as `POST /api/v1/activate` — `device_token` + `config`; throttled; optional `Idempotency-Key`)
    - `POST /api/v1/users/{id}/policy` or `POST /api/v1/devices/{id}/policy`
    - `POST /api/v1/device/token/rotate` (Bearer token + `fingerprint`; rotate device token)
    - `POST /api/v1/device/token/revoke` (Bearer token; revoke current device token immediately)
@@ -51,8 +52,9 @@ This repository contains a closed-loop implementation and M2 upgrades:
    - `cd ../linux-client`
    - `go mod tidy`
    - `go run ./cmd/client version` (optional; same `-ldflags -X main.version=...` pattern as server)
-   - `go run ./cmd/client activate -control-plane http://127.0.0.1:8000 -fingerprint fp-demo-001 -code XXXX-YYYY` (optional `-verify`: control plane before activate; masque `/healthz` after — masque failure only warns, config still saved)
-   - One-liner helper: `./scripts/masque-quick-connect.sh` — prompts for control-plane URL (if unset), email/password on first enroll, then **`sudo connect-ip-tun`** on **`tun0`** with **split routes**, **`-apply-routes-from-capsule`**, and **DNS** (from saved config or `1.1.1.1,8.8.8.8`). If `CONNECT_IP_UDP` is unset, it infers **`${masque_host}:8444`** from `~/.masque-client.json` (`AUTO_CONNECT_IP_UDP_PORT`, `AUTO_CONNECT_IP_UDP=0` to disable). Masque must still listen UDP (**`QUIC_LISTEN_ADDR`**). Legacy HTTP-only: `LEGACY_CONNECT=1` + `CONNECT_MODE=dry-run|real`.
+   - **Simplest enroll:** `go run ./cmd/client quick-login -control-plane https://your-cp.example.com -email you@example.com` with password in **`MASQUE_PASSWORD`** (or `-password`, not recommended on shared hosts). Creates/reads device fingerprint under **`~/.config/masque-linux-client/device-fingerprint`**, calls **`POST /api/v1/devices/bootstrap`**, writes **`~/.masque-client.json`**. Then run `connect` / `connect-ip-tun` as before.
+   - Manual two-step: `go run ./cmd/client activate -control-plane http://127.0.0.1:8000 -fingerprint fp-demo-001 -code XXXX-YYYY` (optional `-verify`: control plane before activate; masque `/healthz` after — masque failure only warns, config still saved)
+   - One-liner helper: `./scripts/masque-quick-connect.sh` — prompts for control-plane URL (if unset), email/password on first enroll (**single bootstrap API call**), then **`sudo connect-ip-tun`** on **`tun0`** with **split routes**, **`-apply-routes-from-capsule`**, and **DNS** (from saved config or `1.1.1.1,8.8.8.8`). If `CONNECT_IP_UDP` is unset, it infers **`${masque_host}:8444`** from `~/.masque-client.json` (`AUTO_CONNECT_IP_UDP_PORT`, `AUTO_CONNECT_IP_UDP=0` to disable). Masque must still listen UDP (**`QUIC_LISTEN_ADDR`**). Legacy HTTP-only: `LEGACY_CONNECT=1` + `CONNECT_MODE=dry-run|real`.
    - `go run ./cmd/client doctor -h` (optional probes: control plane + masque `/healthz`, `-strict` requires masque URL; when capabilities advertise **TUN** per session, `doctor` also **GET `/metrics`** and expects **CONNECT-IP TUN** metric names — see [README.zh.md](./README.zh.md) doctor section)
    - `go run ./cmd/client config show` (token redacted) or `config path` / `config export` / `config import -i file [-force] [-verify]`
    - `go run ./cmd/client status -live` (local summary + `GET /api/v1/devices/self`); `status -json` / `status -json -live` for machine-readable output

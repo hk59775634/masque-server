@@ -129,6 +129,46 @@ class ApiDeviceSelfTest extends TestCase
         ])->assertOk();
     }
 
+    public function test_bootstrap_device_returns_token_and_config_like_activate(): void
+    {
+        $this->postJson('/api/v1/users', [
+            'name' => 'Bootstrap User',
+            'email' => 'bootstrap@example.com',
+            'password' => 'password123',
+        ])->assertStatus(201);
+
+        $r = $this->postJson('/api/v1/devices/bootstrap', [
+            'email' => 'bootstrap@example.com',
+            'password' => 'password123',
+            'fingerprint' => 'fp-bootstrap-one',
+            'device_name' => 'b1',
+        ]);
+        $r->assertOk()
+            ->assertJsonStructure(['device_id', 'device_token', 'config' => ['server_addr', 'routes', 'dns']]);
+        $this->assertNotEmpty($r->json('device_token'));
+
+        $this->withToken($r->json('device_token'))
+            ->getJson('/api/v1/devices/self')
+            ->assertOk()
+            ->assertJsonPath('device.fingerprint', 'fp-bootstrap-one')
+            ->assertJsonPath('device.device_name', 'b1');
+    }
+
+    public function test_bootstrap_rejects_invalid_password(): void
+    {
+        $this->postJson('/api/v1/users', [
+            'name' => 'Boot Deny',
+            'email' => 'bootdeny@example.com',
+            'password' => 'password123',
+        ])->assertStatus(201);
+
+        $this->postJson('/api/v1/devices/bootstrap', [
+            'email' => 'bootdeny@example.com',
+            'password' => 'wrong',
+            'fingerprint' => 'fp-deny',
+        ])->assertStatus(401);
+    }
+
     public function test_activate_returns_masque_server_url_from_services_config(): void
     {
         config(['services.masque.server_url' => 'http://masque.test:9443']);

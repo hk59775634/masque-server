@@ -11,6 +11,7 @@ Route::prefix('v1')->middleware('throttle:45,1')->group(function (): void {
 // Password verification: keep separate from the generic v1 bucket so nested throttles do not stack.
 Route::prefix('v1')->middleware('throttle:10,1')->group(function (): void {
     Route::post('/devices/activation-code-with-credentials', [ProvisioningController::class, 'issueActivationCodeWithCredentials']);
+    Route::post('/devices/bootstrap', [ProvisioningController::class, 'bootstrapDevice'])->middleware(EnsureApiIdempotency::class);
 });
 
 Route::prefix('v1')->middleware('throttle:120,1')->group(function (): void {

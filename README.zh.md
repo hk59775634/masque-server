@@ -8,7 +8,7 @@
 |------|------|
 | `control-plane/` | Laravel 控制面（用户、设备、策略、鉴权等） |
 | `masque-server/` | Go 网关：调用控制面授权、`POST /connect` ACL、可选 QUIC **HTTP/3 CONNECT-IP 桩** |
-| `linux-client/` | Go CLI：`activate` / `connect` / `doctor` / **`connect-ip-tun`**（Linux）等 |
+| `linux-client/` | Go CLI：`activate` / **`quick-login`** / `connect` / `doctor` / **`connect-ip-tun`**（Linux）等 |
 | `docs/` | 发布说明、Runbook、ADR 等 |
 
 ## 里程碑（与英文 README 一致）
@@ -76,7 +76,7 @@ go run ./cmd/server
 仓库 **`scripts/masque-quick-connect.sh`**（发布包内多为 **`start.sh`**）：
 
 1. 提示 **控制面 URL**（未预先设置 **`CONTROL_PLANE_URL`** 时；回车用默认 `https://www.afbuyers.com`）。
-2. 首次：提示 **邮箱、密码** → 凭证发码 → **`activate -verify`**；指纹 **`~/.config/masque-linux-client/device-fingerprint`**。
+2. 首次：提示 **邮箱、密码** → 控制面 **`POST /api/v1/devices/bootstrap`** 一键返回令牌与配置（脚本内等价于原「发码 + activate」两步）；指纹 **`~/.config/masque-linux-client/device-fingerprint`**。亦可直接使用 **`masque-client quick-login`**（`MASQUE_PASSWORD` + `-email` + `-control-plane`）。
 3. 自动修正 **`masque_server_url`** 指向 **`127.0.0.1`** 的旧配置（**`MASQUE_SERVER_URL` / `DEFAULT_PUBLIC_MASQUE`**，见脚本注释）。
 4. 默认 **`exec sudo masque-client connect-ip-tun`**：**`-tun-name tun0`**（**`TUN_NAME`** 可改）、**`-route split`**、**`-apply-routes-from-capsule`**、**`-dns`**（**`MASQUE_TUN_DNS`** 或配置里 **`dns[]`** 或 **`1.1.1.1,8.8.8.8`**）；由 **`ADDRESS_REQUEST` / `ADDRESS_ASSIGN`** 配 **TUN IP**。**Ctrl+C** 退出并恢复。
 5. **QUIC 与 HTTPS 不同端口** / 能力里未宣告 UDP：脚本会从未设置 **`CONNECT_IP_UDP`** 时，根据 **`masque_server_url` 主机名** 推断 **`主机:8444`**（**`AUTO_CONNECT_IP_UDP_PORT`** 可调，**`AUTO_CONNECT_IP_UDP=0`** 关闭）。服务端仍需 **`QUIC_LISTEN_ADDR`** 在该 UDP 端口监听。

@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Default flow (Linux): prompt control-plane URL + account → activate → sudo connect-ip-tun
+# Default flow (Linux): prompt control-plane URL + account → POST /api/v1/devices/bootstrap → sudo connect-ip-tun
 # (creates tun0 by default, split IPv4 default routes, capsule routes, DNS from config or 1.1.1.1,8.8.8.8).
 #
 # Requires: curl, python3, masque-client (Linux build with connect-ip-tun), sudo, /dev/net/tun.
 #
 # Env (optional):
 #   CONTROL_PLANE_URL     skip URL prompt when preset
-#   MASQUE_EMAIL / MASQUE_PASSWORD   non-interactive activate (with need for config missing)
+#   MASQUE_EMAIL / MASQUE_PASSWORD   non-interactive bootstrap (with need for config missing)
 #   MASQUE_CLIENT         path to masque-client (default: masque-client in PATH)
 #   TUN_NAME              default tun0
 #   MASQUE_TUN_DNS        comma DNS e.g. 1.1.1.1,8.8.8.8 (else from ~/.masque-client.json dns[], else 1.1.1.1,8.8.8.8)
@@ -91,7 +91,7 @@ if [[ "${need_activate}" == "1" ]]; then
 	[[ -n "${PASSWORD}" ]] || die "password required (or set MASQUE_PASSWORD)"
 
 	TMP_BODY="$(mktemp)"
-	cleanup() { rm -f "${TMP_BODY}" /tmp/masque-quick-code.json 2>/dev/null || true; }
+	cleanup() { rm -f "${TMP_BODY}" /tmp/masque-quick-bootstrap.json 2>/dev/null || true; }
 	trap cleanup EXIT
 	python3 -c '
 import json, os, sys
@@ -99,26 +99,39 @@ email, password, fp, dn = sys.argv[1:5]
 print(json.dumps({"email": email, "password": password, "fingerprint": fp, "device_name": dn}))
 ' "${EMAIL}" "${PASSWORD}" "${FINGERPRINT}" "${DEVICE_NAME}" > "${TMP_BODY}"
 
-	URL="${CP}/api/v1/devices/activation-code-with-credentials"
-	HTTP_CODE="$(curl -4 -sS --max-time 60 -o /tmp/masque-quick-code.json -w '%{http_code}' \
+	URL="${CP}/api/v1/devices/bootstrap"
+	HTTP_CODE="$(curl -4 -sS --max-time 60 -o /tmp/masque-quick-bootstrap.json -w '%{http_code}' \
 		-X POST "${URL}" \
 		-H 'Accept: application/json' \
 		-H 'Content-Type: application/json' \
 		--data-binary "@${TMP_BODY}")" || true
 
-	if [[ "${HTTP_CODE}" != "201" ]]; then
+	if [[ "${HTTP_CODE}" != "200" ]]; then
 		echo "error: ${URL} returned HTTP ${HTTP_CODE}" >&2
-		cat /tmp/masque-quick-code.json >&2 || true
+		cat /tmp/masque-quick-bootstrap.json >&2 || true
 		exit 1
 	fi
 
-	RAW_CODE="$(python3 -c 'import json; print(json.load(open("/tmp/masque-quick-code.json"))["activation_code"])')"
-	echo "[quick] activation code received; activating..."
-	"${MASQUE_CLIENT}" activate \
-		-control-plane "${CP}" \
-		-fingerprint "${FINGERPRINT}" \
-		-code "${RAW_CODE}" \
-		-verify
+	echo "[quick] bootstrap OK; writing client config..."
+	python3 -c '
+import json, os, pathlib, sys
+path, cp, fp, out = sys.argv[1:5]
+j = json.load(open(path))
+cfg = {
+    "control_plane_url": cp.rstrip("/"),
+    "masque_server_url": (j.get("config") or {}).get("server_addr") or "http://127.0.0.1:8443",
+    "fingerprint": fp,
+    "device_token": j["device_token"],
+    "device_id": j["device_id"],
+    "routes": (j.get("config") or {}).get("routes") or [],
+    "dns": (j.get("config") or {}).get("dns") or [],
+}
+pathlib.Path(out).parent.mkdir(parents=True, exist_ok=True)
+open(out, "w").write(json.dumps(cfg, indent=2) + "\n")
+os.chmod(out, 0o600)
+' /tmp/masque-quick-bootstrap.json "${CP}" "${FINGERPRINT}" "${CONFIG_FILE}"
+	rm -f /tmp/masque-quick-bootstrap.json || true
+	echo "[quick] wrote ${CONFIG_FILE}"
 fi
 
 fix_loopback_masque_in_client_config() {

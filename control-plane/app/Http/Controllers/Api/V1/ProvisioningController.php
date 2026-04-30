@@ -111,6 +111,46 @@ class ProvisioningController extends Controller
         ], 201);
     }
 
+    /**
+     * One-step device registration: verify email/password, create activation, consume it, return device token + config.
+     * Same response shape as POST /api/v1/activate; intended for CLI "quick-login" (user supplies control-plane domain + credentials only).
+     */
+    #[HeaderParameter('Idempotency-Key', 'Optional UUID; same key + identical body replays prior success; mismatch returns 409.', required: false, type: 'string')]
+    public function bootstrapDevice(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'email' => ['required', 'email', 'max:255'],
+            'password' => ['required', 'string', 'max:255'],
+            'fingerprint' => ['required', 'string', 'max:255'],
+            'device_name' => ['nullable', 'string', 'max:100'],
+        ]);
+
+        $emailKey = mb_strtolower(trim($validated['email']));
+        $user = User::query()->whereRaw('lower(email) = ?', [$emailKey])->first();
+        if ($user === null || ! Hash::check($validated['password'], $user->password)) {
+            return response()->json(['message' => 'Invalid email or password'], 401);
+        }
+
+        $deviceName = $validated['device_name'] ?? ('quick-' . Str::slug((string) $user->name));
+
+        $rawCode = Str::upper(Str::random(4).'-'.Str::random(4));
+        $activation = ActivationCode::create([
+            'user_id' => $user->id,
+            'device_name' => $deviceName,
+            'fingerprint' => $validated['fingerprint'],
+            'code_hash' => Hash::make($rawCode),
+            'expires_at' => now()->addMinutes(20),
+        ]);
+
+        $this->audit('device.activation_code_issued', 'Activation code issued (one-step bootstrap)', $request, $user->id, null, [
+            'activation_code_id' => $activation->id,
+            'device_name' => $deviceName,
+            'via' => 'bootstrap',
+        ]);
+
+        return $this->finalizeDeviceActivation($activation, $request);
+    }
+
     #[HeaderParameter('Idempotency-Key', 'Optional UUID; same key + identical body replays prior success; mismatch returns 409.', required: false, type: 'string')]
     public function activateDevice(Request $request): JsonResponse
     {
@@ -135,6 +175,11 @@ class ProvisioningController extends Controller
             return response()->json(['message' => 'Invalid or expired activation code'], 422);
         }
 
+        return $this->finalizeDeviceActivation($activation, $request);
+    }
+
+    private function finalizeDeviceActivation(ActivationCode $activation, Request $request): JsonResponse
+    {
         $tokenExpiresAt = now()->addHours(self::TOKEN_TTL_HOURS);
 
         $existing = Device::query()->where('fingerprint', $activation->fingerprint)->first();

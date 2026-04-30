@@ -75,6 +75,8 @@ func main() {
 	switch os.Args[1] {
 	case "activate":
 		cmdActivate(os.Args[2:])
+	case "quick-login":
+		cmdQuickLogin(os.Args[2:])
 	case "connect":
 		cmdConnect(os.Args[2:])
 	case "status":
@@ -180,6 +182,144 @@ func cmdActivate(args []string) {
 	}
 
 	fmt.Printf("activated: device_id=%d\n", resp.DeviceID)
+}
+
+func fingerprintFilePath() string {
+	if p := strings.TrimSpace(os.Getenv("MASQUE_FINGERPRINT_FILE")); p != "" {
+		return p
+	}
+	xdg := strings.TrimSpace(os.Getenv("XDG_CONFIG_HOME"))
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return filepath.Join(".config", "masque-linux-client", "device-fingerprint")
+	}
+	if xdg != "" {
+		return filepath.Join(xdg, "masque-linux-client", "device-fingerprint")
+	}
+	return filepath.Join(home, ".config", "masque-linux-client", "device-fingerprint")
+}
+
+// loadOrCreateDeviceFingerprint reads ~/.config/masque-linux-client/device-fingerprint (or MASQUE_FINGERPRINT_FILE), or creates a stable random fingerprint.
+func loadOrCreateDeviceFingerprint(hostname string) (string, error) {
+	p := fingerprintFilePath()
+	if raw, err := os.ReadFile(p); err == nil {
+		fp := strings.TrimSpace(string(raw))
+		if fp != "" {
+			return fp, nil
+		}
+	}
+	dir := filepath.Dir(p)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	b := make([]byte, 8)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	host := strings.TrimSpace(hostname)
+	if host == "" {
+		host = "host"
+	}
+	fp := fmt.Sprintf("fp-%s-%s", host, hex.EncodeToString(b))
+	if err := os.WriteFile(p, []byte(fp+"\n"), 0o600); err != nil {
+		return "", err
+	}
+	fmt.Fprintf(os.Stderr, "quick-login: wrote new device fingerprint to %s\n", p)
+	return fp, nil
+}
+
+func cmdQuickLogin(args []string) {
+	fs := flag.NewFlagSet("quick-login", flag.ExitOnError)
+	cpURL := fs.String("control-plane", "http://127.0.0.1:8000", "control plane base URL (e.g. https://vpn.example.com)")
+	email := fs.String("email", "", "account email (same as web login)")
+	password := fs.String("password", "", "account password (omit to use MASQUE_PASSWORD env)")
+	deviceName := fs.String("device-name", "", "device display name (default: <hostname>-quick)")
+	verify := fs.Bool("verify", false, "probe control plane and masque /healthz like activate -verify")
+	fs.Usage = func() {
+		fmt.Fprintf(os.Stderr, "usage: client quick-login [-control-plane URL] -email ... [-password ...] [-device-name ...] [-verify]\n")
+		fmt.Fprintln(os.Stderr, "  One HTTP call to POST /api/v1/devices/bootstrap; saves ~/.masque-client.json. Password: prefer MASQUE_PASSWORD env over -password (visible in ps).")
+		fs.PrintDefaults()
+	}
+	_ = fs.Parse(args)
+
+	if strings.TrimSpace(*email) == "" {
+		fatal(errors.New("-email is required"))
+	}
+	pw := strings.TrimSpace(*password)
+	if pw == "" {
+		pw = strings.TrimSpace(os.Getenv("MASQUE_PASSWORD"))
+	}
+	if pw == "" {
+		fatal(errors.New("set -password or environment variable MASQUE_PASSWORD"))
+	}
+
+	hn, _ := os.Hostname()
+	fp, err := loadOrCreateDeviceFingerprint(hn)
+	if err != nil {
+		fatal(err)
+	}
+	dn := strings.TrimSpace(*deviceName)
+	if dn == "" {
+		dn = fmt.Sprintf("%s-quick", hn)
+	}
+
+	cpBase := strings.TrimRight(strings.TrimSpace(*cpURL), "/")
+
+	if *verify {
+		client := &http.Client{Timeout: 8 * time.Second}
+		ctx := context.Background()
+		if _, err := checkControlPlaneReachable(ctx, client, cpBase); err != nil {
+			fatal(fmt.Errorf("quick-login -verify: control plane: %w", err))
+		}
+		fmt.Fprintln(os.Stderr, "quick-login -verify: control plane OK")
+	}
+
+	reqBody := map[string]string{
+		"email":       strings.TrimSpace(*email),
+		"password":    pw,
+		"fingerprint": fp,
+		"device_name": dn,
+	}
+	raw, err := postJSON(joinURL(cpBase, "/api/v1/devices/bootstrap"), reqBody)
+	if err != nil {
+		fatal(err)
+	}
+
+	var resp activateResponse
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		fatal(err)
+	}
+
+	cfg := ClientConfig{
+		ControlPlaneURL: cpBase,
+		MasqueServerURL: "http://127.0.0.1:8443",
+		Fingerprint:     fp,
+		DeviceToken:     resp.DeviceToken,
+		DeviceID:        resp.DeviceID,
+	}
+	if resp.Config.ServerAddr != "" {
+		cfg.MasqueServerURL = resp.Config.ServerAddr
+	}
+	cfg.Routes = resp.Config.Routes
+	cfg.DNS = resp.Config.DNS
+
+	if *verify {
+		client := &http.Client{Timeout: 8 * time.Second}
+		ctx := context.Background()
+		mHealth := joinURL(strings.TrimRight(cfg.MasqueServerURL, "/"), "/healthz")
+		httpCode, errHealth := httpGetStatus(ctx, client, mHealth)
+		if errHealth != nil || httpCode != http.StatusOK {
+			fmt.Fprintf(os.Stderr, "quick-login -verify: warning: masque_server GET %s (err=%v, status=%d); config still saved\n", mHealth, errHealth, httpCode)
+		} else {
+			fmt.Fprintln(os.Stderr, "quick-login -verify: masque_server OK")
+		}
+	}
+
+	if err := saveConfig(cfg); err != nil {
+		fatal(err)
+	}
+
+	fmt.Printf("quick-login: device_id=%d (config saved; run connect or connect-ip-tun)\n", resp.DeviceID)
 }
 
 func cmdConnect(args []string) {
@@ -967,7 +1107,8 @@ func cmdVersion() {
 }
 
 func usage() {
-	fmt.Println("usage: client <activate|connect|status|disconnect|doctor|connect-ip-tun|version|config <path|show|export|import>> [flags]")
+	fmt.Println("usage: client <activate|quick-login|connect|status|disconnect|doctor|connect-ip-tun|version|config <path|show|export|import>> [flags]")
+	fmt.Println("       client quick-login -h  # email+password -> POST /api/v1/devices/bootstrap -> save config (fingerprint auto in ~/.config/masque-linux-client/)")
 	fmt.Println("       client connect-ip-tun -h   # Linux TUN + CONNECT-IP; optional ADDRESS/ROUTE/split-default; reconnect; needs root/CAP_NET_ADMIN for ip")
 	fmt.Println("       client doctor -h   # list doctor flags (-control-plane, -masque-server, -loki, -tcp-probe, -connect-ip, -connect-ip-rfc9484-udp, -strict)")
 	fmt.Println("       client status -h   # list status flags (-live, -json)")
