@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\AdminOperationToken;
+use App\Models\Permission;
 use App\Models\Role;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -63,6 +64,56 @@ class AdminRbacTest extends TestCase
         $target->refresh();
         $this->assertTrue($target->is_admin);
         $this->assertTrue($target->roles()->where('name', 'admin')->exists());
+    }
+
+    public function test_auditor_role_cannot_open_rbac_management(): void
+    {
+        $user = User::factory()->create(['is_admin' => false]);
+        $auditor = Role::query()->where('name', 'auditor')->firstOrFail();
+        $user->roles()->sync([$auditor->id]);
+
+        $this->actingAs($user)
+            ->get(route('admin.rbac.index'))
+            ->assertForbidden();
+    }
+
+    public function test_admin_role_user_can_open_rbac_management(): void
+    {
+        $user = User::factory()->create(['is_admin' => false]);
+        $adminRole = Role::query()->where('name', 'admin')->firstOrFail();
+        $user->roles()->sync([$adminRole->id]);
+
+        $this->actingAs($user)
+            ->get(route('admin.rbac.index'))
+            ->assertOk();
+    }
+
+    public function test_updating_admin_role_permissions_requires_operation_token_when_changed(): void
+    {
+        $operator = User::factory()->create(['is_admin' => true]);
+        $adminRole = Role::query()->where('name', 'admin')->firstOrFail();
+        $permIds = Permission::query()->orderBy('id')->pluck('id')->map(fn ($v): int => (int) $v)->values()->all();
+        $dropOne = array_values(array_filter($permIds, fn (int $id): bool => $id !== (int) Permission::query()->where('name', 'admin.access')->value('id')));
+
+        $this->actingAs($operator)
+            ->post(route('admin.rbac.roles.permissions', $adminRole), [
+                'permission_ids' => $dropOne,
+            ])
+            ->assertSessionHasErrors('operation_token');
+    }
+
+    public function test_can_create_custom_role_via_rbac_page(): void
+    {
+        $operator = User::factory()->create(['is_admin' => true]);
+
+        $this->actingAs($operator)
+            ->post(route('admin.rbac.roles.store'), [
+                'name' => 'custom_support',
+                'display_name' => 'Support',
+            ])
+            ->assertRedirect();
+
+        $this->assertDatabaseHas('roles', ['name' => 'custom_support']);
     }
 }
 

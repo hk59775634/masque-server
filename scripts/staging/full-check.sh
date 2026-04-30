@@ -16,6 +16,8 @@ AUTHZ_HMAC_REQUIRED_EXPECTED="${AUTHZ_HMAC_REQUIRED_EXPECTED:-0}"
 RUN_MULTI_NODE_HA_CHECK="${RUN_MULTI_NODE_HA_CHECK:-0}"
 EXPECTED_HEALTHY_NODES="${EXPECTED_HEALTHY_NODES:-2}"
 MASQUE_LB_URL="${MASQUE_LB_URL:-}"
+RUN_IPV4_SCOPE_CHECK="${RUN_IPV4_SCOPE_CHECK:-0}"
+STRICT_HA_NO_UNEXPECTED="${STRICT_HA_NO_UNEXPECTED:-0}"
 
 STAMP="$(date +%Y%m%d-%H%M%S)"
 REPORT_DIR="${ROOT_DIR}/scripts/staging/reports"
@@ -42,6 +44,8 @@ echo "- authz_hmac_required_expected: ${AUTHZ_HMAC_REQUIRED_EXPECTED}" >>"${REPO
 echo "- run_multi_node_ha_check: ${RUN_MULTI_NODE_HA_CHECK}" >>"${REPORT_FILE}"
 echo "- expected_healthy_nodes: ${EXPECTED_HEALTHY_NODES}" >>"${REPORT_FILE}"
 echo "- masque_lb_url: ${MASQUE_LB_URL:-<unset>}" >>"${REPORT_FILE}"
+echo "- run_ipv4_scope_check: ${RUN_IPV4_SCOPE_CHECK}" >>"${REPORT_FILE}"
+echo "- strict_ha_no_unexpected: ${STRICT_HA_NO_UNEXPECTED}" >>"${REPORT_FILE}"
 echo "" >>"${REPORT_FILE}"
 echo "## Checks" >>"${REPORT_FILE}"
 
@@ -146,13 +150,24 @@ if [[ "${RUN_MULTI_NODE_HA_CHECK}" == "1" ]]; then
   info "running multi-node HA checks"
   echo "" >>"${REPORT_FILE}"
   echo "### multi-node-ha-check.sh output" >>"${REPORT_FILE}"
-  if "${ROOT_DIR}/scripts/staging/multi-node-ha-check.sh" >>"${REPORT_FILE}" 2>&1; then
+  if STRICT_HA_NO_UNEXPECTED="${STRICT_HA_NO_UNEXPECTED}" "${ROOT_DIR}/scripts/staging/multi-node-ha-check.sh" >>"${REPORT_FILE}" 2>&1; then
     pass "multi-node-ha-check.sh"
   else
     fail "multi-node-ha-check.sh"
   fi
 else
   info "multi-node HA checks skipped (set RUN_MULTI_NODE_HA_CHECK=1 to enable)"
+fi
+
+if [[ "${RUN_IPV4_SCOPE_CHECK}" == "1" ]]; then
+  info "running IPv4 dataplane scope guard check"
+  if "${ROOT_DIR}/scripts/staging/ipv4-dataplane-scope-check.sh" >>"${REPORT_FILE}" 2>&1; then
+    pass "ipv4-dataplane-scope-check.sh"
+  else
+    fail "ipv4-dataplane-scope-check.sh"
+  fi
+else
+  info "IPv4 scope check skipped (set RUN_IPV4_SCOPE_CHECK=1 to enable)"
 fi
 
 echo "" >>"${REPORT_FILE}"

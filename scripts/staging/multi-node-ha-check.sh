@@ -5,6 +5,7 @@ MASQUE_NODE_URLS="${MASQUE_NODE_URLS:-}"
 MASQUE_LB_URL="${MASQUE_LB_URL:-}"
 PROMETHEUS_URL="${PROMETHEUS_URL:-http://127.0.0.1:9090}"
 EXPECTED_HEALTHY_NODES="${EXPECTED_HEALTHY_NODES:-2}"
+STRICT_HA_NO_UNEXPECTED="${STRICT_HA_NO_UNEXPECTED:-0}"
 
 if [[ -z "${MASQUE_NODE_URLS}" ]]; then
   echo "[multi-node-ha] MASQUE_NODE_URLS is empty. Example: http://10.0.0.11:8443,http://10.0.0.12:8443" >&2
@@ -20,6 +21,7 @@ echo "[multi-node-ha] prometheus=${PROMETHEUS_URL}"
 echo "[multi-node-ha] expected_healthy_nodes=${EXPECTED_HEALTHY_NODES}"
 echo "[multi-node-ha] node_urls=${MASQUE_NODE_URLS}"
 echo "[multi-node-ha] lb_url=${MASQUE_LB_URL:-<unset>}"
+echo "[multi-node-ha] strict_ha_no_unexpected=${STRICT_HA_NO_UNEXPECTED}"
 
 IFS=',' read -r -a nodes <<< "${MASQUE_NODE_URLS}"
 if [[ "${#nodes[@]}" -lt "${EXPECTED_HEALTHY_NODES}" ]]; then
@@ -95,7 +97,7 @@ fi
 
 targets_raw="$(curl -fsS "${PROMETHEUS_URL}/api/v1/targets")"
 python3 - <<'PY' "${targets_raw}" "${EXPECTED_HEALTHY_NODES}" "${normalized_nodes_json}"
-import json, sys
+import json, os, sys
 d = json.loads(sys.argv[1])
 expected = int(sys.argv[2])
 expected_instances = set(json.loads(sys.argv[3]))
@@ -130,6 +132,13 @@ print("| Type | Instances |")
 print("|---|---|")
 print("| expected_missing_in_healthy | - |")
 print(f"| healthy_not_in_expected | {', '.join(unexpected) if unexpected else '-'} |")
+
+strict = str(os.environ.get("STRICT_HA_NO_UNEXPECTED", "")).strip().lower() in ("1", "true", "yes")
+if strict and unexpected:
+    raise SystemExit(
+        "STRICT_HA_NO_UNEXPECTED: prometheus healthy masque-server instance(s) not listed in MASQUE_NODE_URLS: "
+        + ", ".join(unexpected)
+    )
 
 print("[multi-node-ha] prometheus target detail markdown follows")
 print("### Prometheus Target Detail (masque-server)")

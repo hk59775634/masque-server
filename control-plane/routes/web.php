@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Admin\AdminController;
+use App\Http\Controllers\Admin\AdminRbacController;
 use App\Http\Controllers\Admin\AdminTwoFactorController;
 use App\Http\Controllers\Auth\LoginController;
 use App\Http\Controllers\Auth\RegisterController;
@@ -56,5 +57,15 @@ Route::middleware(['auth', EnsureSessionNotRevoked::class])->group(function (): 
         Route::post('/admin/audits/archive-now', [AdminController::class, 'archiveAuditsNow'])->middleware('permission:admin.audit.read')->name('admin.audits.archive-now');
         Route::get('/admin/audits', [AdminController::class, 'index'])->middleware('permission:admin.audit.read')->name('admin.audits');
         Route::get('/admin/audits/export', [AdminController::class, 'exportAudits'])->middleware('permission:admin.audit.read')->name('admin.audits.export');
+        Route::get('/admin/rbac', [AdminRbacController::class, 'index'])->middleware('permission:admin.rbac.write')->name('admin.rbac.index');
+        Route::post('/admin/rbac/roles', [AdminRbacController::class, 'store'])
+            ->middleware(['permission:admin.rbac.write', 'throttle:30,1'])
+            ->name('admin.rbac.roles.store');
+        Route::post('/admin/rbac/roles/{role}/permissions', [AdminRbacController::class, 'updateRolePermissions'])
+            ->middleware(['permission:admin.rbac.write', 'throttle:30,1'])
+            ->name('admin.rbac.roles.permissions');
+        Route::post('/admin/rbac/users/roles', [AdminRbacController::class, 'syncUserRoles'])
+            ->middleware(['permission:admin.rbac.write', 'throttle:30,1'])
+            ->name('admin.rbac.users.roles');
     });
 });

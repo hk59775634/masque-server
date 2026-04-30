@@ -71,6 +71,13 @@ If severe regression happens:
 - Force logout user session is available in Admin user panel and also requires one-time confirmation token.
 - Batch force logout by scope is available (all users / non-admin users, excluding current operator), also requires one-time confirmation token.
 - Always verify audit log after high-risk operations.
+- RBAC 管理页（`/admin/rbac`）：修改 **admin** 角色的权限绑定，或**首次**给任意角色授予 `admin.rbac.write` 时，同样需要一次性确认码；用户管理员特权变化与策略页规则一致。
+
+### Authorize HMAC（控制面 ↔ masque）
+
+- 先在 **masque-server** 与 **control-plane** 配置相同的 `MASQUE_AUTHORIZE_HMAC_SECRET`（及控制面侧等价变量，见 `.env.example` 注释）。
+- 双方冒烟通过后再将 `MASQUE_AUTHORIZE_HMAC_REQUIRED=true`（staging 建议在验证 `scripts/staging/authz-hmac-check.sh` 后默认开启）。
+- 回滚：若 `/api/v1/server/authorize` 回调大量失败，先在**两侧**将 `MASQUE_AUTHORIZE_HMAC_REQUIRED=false`，保留密钥以便快速再次开启。
 
 ## 6. Audit integrity
 

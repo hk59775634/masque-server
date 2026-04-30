@@ -75,6 +75,9 @@
             <a class="btn" href="{{ route('admin.index', ['tab' => 'users']) }}">用户策略</a>
             <a class="btn" href="{{ route('admin.index', ['tab' => 'devices']) }}">设备策略</a>
             <a class="btn" href="{{ route('admin.audits', ['tab' => 'audits']) }}">操作审计</a>
+            @if(auth()->user()?->hasPermission('admin.rbac.write'))
+            <a class="btn" href="{{ route('admin.rbac.index') }}">角色与权限</a>
+            @endif
             <a class="btn" href="{{ route('admin.two-factor.setup') }}">两步验证</a>
             <a class="btn" href="{{ url('/docs/api') }}" target="_blank" rel="noopener noreferrer">API 文档</a>
             <form method="POST" action="{{ route('logout') }}">@csrf <button class="btn" type="submit">退出登录</button></form>
