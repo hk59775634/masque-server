@@ -20,6 +20,16 @@ services:
     environment:
       CONTROL_PLANE_URL: http://control-plane:8000
       LISTEN_ADDR: ":8443"
+      # CONNECT-IP / QUIC (used by vpn-internet profile + local connect-ip-tun tests)
+      QUIC_LISTEN_ADDR: ":8444"
+      CONNECT_IP_TUN_FORWARD: "true"
+      CONNECT_IP_TUN_MANAGED_NAT: "true"
+      CONNECT_IP_TUN_EGRESS_IFACE: "eth0"
+      CONNECT_IP_TUN_NAT_FALLBACK_IPTABLES: "true"
+    cap_add:
+      - NET_ADMIN
+    sysctls:
+      - net.ipv4.ip_forward=1
     depends_on:
       control-plane:
         condition: service_healthy
@@ -39,6 +49,29 @@ services:
       CONTROL_PLANE_URL: http://control-plane:8000
       MASQUE_SERVER_URL: http://masque:8443
       MASQUE_CLIENT_BIN: /usr/local/bin/masque-client
+    depends_on:
+      masque:
+        condition: service_healthy
+    networks: [e2e]
+
+  # Full VPN path: TUN + CONNECT-IP + managed NAT on masque, then curl/speedtest via tunnel.
+  # Run: docker compose -f docker/e2e/docker-compose.yml --profile vpn-internet up --build --abort-on-container-exit vpn-probe
+  vpn-probe:
+    profiles: ["vpn-internet"]
+    build:
+      context: ../..
+      dockerfile: docker/e2e/Dockerfile.vpn-probe
+    environment:
+      CONTROL_PLANE_URL: http://control-plane:8000
+      MASQUE_SERVER_URL: http://masque:8443
+      SKIP_SPEEDTEST: "0"
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun
+    privileged: true
+    sysctls:
+      - net.ipv4.ip_forward=1
     depends_on:
       masque:
         condition: service_healthy

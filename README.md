@@ -102,6 +102,7 @@ With control-plane and masque-server running as above, and **`MASQUE_SERVER_URL`
 
 - `./scripts/dev/e2e-client-connect-dry-run.sh` — creates a throwaway API user, issues a code, `activate`, then `connect -dry-run` using a temp config file (does not overwrite `~/.masque-client.json`).
 - **Docker (same E2E, fully isolated):** from repo root, `docker compose -f docker/e2e/docker-compose.yml up --build --abort-on-container-exit --remove-orphans` (see `docker/e2e/README.md`).
+- **Docker VPN + internet checks:** `docker compose -f docker/e2e/docker-compose.yml --profile vpn-internet up --build --abort-on-container-exit vpn-probe` — bootstrap, `connect-ip-tun`, `curl` ipinfo.io / google.com, optional `speedtest-cli` (Linux host with outbound internet recommended; use **Compose v2**; see `docker/e2e/README.md`).
 - Optional isolation: `MASQUE_CLIENT_CONFIG` / `MASQUE_CLIENT_STATE` point the CLI at alternate paths (the script sets these automatically).
 
 ## M3 local observability quickstart

@@ -1,0 +1,16 @@
+FROM golang:1.24-bookworm AS build
+ENV GOTOOLCHAIN=auto
+WORKDIR /src
+COPY linux-client/go.mod ./
+RUN go mod download || true
+COPY linux-client/ ./
+RUN go mod tidy && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /masque-client ./cmd/client
+
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends \
+		ca-certificates curl jq iproute2 procps speedtest-cli \
+	&& rm -rf /var/lib/apt/lists/*
+COPY --from=build /masque-client /usr/local/bin/masque-client
+COPY docker/e2e/run-vpn-internet-probe.sh /run-vpn-internet-probe.sh
+RUN chmod +x /run-vpn-internet-probe.sh
+ENTRYPOINT ["/run-vpn-internet-probe.sh"]

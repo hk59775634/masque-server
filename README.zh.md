@@ -140,6 +140,8 @@ sudo go run ./cmd/client connect-ip-tun [-masque-server URL] [-connect-ip-udp ho
 
 更完整的步骤、E2E、可观测与部署说明仍以 **[README.md](./README.md)** 为准。
 
+**Docker 全链路外网探测（VPN profile）：** 仓库 **`docker/e2e/docker-compose.yml`** 增加 profile **`vpn-internet`** 与 **`vpn-probe`** 服务：一键 **`bootstrap`** + **`connect-ip-tun`** 后 **`curl` ipinfo.io / Google** 与可选 **`speedtest-cli`**。推荐 **`docker compose`（Compose v2）**；说明见 **`docker/e2e/README.md`**。
+
 ## 安全提示
 
 - **`CONNECT_IP_SKIP_AUTH`**、**`CONNECT_IP_STUB_ECHO_CONTEXTS`**、**`CONNECT_IP_UDP_RELAY`**、**`CONNECT_IP_ICMP_RELAY`**、**`CONNECT_IP_TUN_FORWARD`**、**`CONNECT_IP_TUN_SHARED`**（默认随 `CONNECT_IP_TUN_FORWARD` 开启） 、**`CONNECT_IP_TUN_SHARED_BINDING_TTL`**、**`CONNECT_IP_TUN_LINK_UP`**、**`CONNECT_IP_TUN_MANAGED_NAT`**、**`CONNECT_IP_TUN_NAT_BACKEND`**、**`CONNECT_IP_TUN_NAT_FALLBACK_IPTABLES`** 均可能扩大攻击面，仅应在受控环境使用。
