@@ -156,6 +156,7 @@ These are safe skeletons. Customize the service restart section for your product
 - Admin session hardening:
   - set `ADMIN_SESSION_IDLE_TIMEOUT_MINUTES=30` to auto-expire idle admin sessions
 - High-risk admin actions now use one-time confirmation tokens (single-use, 5-minute TTL)
+- RBAC management UI at `/admin/rbac` (`admin.rbac.write`): create roles, bind permissions, sync user roles; template roles `auditor` / `ops` / `security` ship with migrations (see `开发需求.md` §3.3)
 - Admin can force logout a specific user (requires one-time confirmation token)
 - Admin can batch force logout by scope (all users / non-admin users, excludes current operator)
 - Audit logs now include tamper-evident hash chain (`prev_hash` + `entry_hash`)
@@ -195,6 +196,8 @@ Optional load variables:
 - `RUN_PHASE2B_KERNEL=1` validate CONNECT-IP kernel-forward/shared/NAT capabilities + metrics + alerts
 - `RUN_AUTHZ_HMAC_CHECK=1` run control-plane `/api/v1/server/authorize` HMAC gate check (requires `AUTHZ_HMAC_SECRET` for signed path; set `AUTHZ_HMAC_REQUIRED_EXPECTED=1` when staging enforces required mode)
 - `RUN_MULTI_NODE_HA_CHECK=1` run multi-node HA gate (`MASQUE_NODE_URLS=http://10.0.0.11:8443,http://10.0.0.12:8443`, `EXPECTED_HEALTHY_NODES=2`) and verify Prometheus has at least N healthy `job="masque-server"` targets; optional `MASQUE_LB_URL=http://masque-lb:8443` enables LB health/capability consistency check
+- `STRICT_HA_NO_UNEXPECTED=1` (with HA check enabled) fails if Prometheus reports **extra** healthy `masque-server` instances not listed in `MASQUE_NODE_URLS` (stricter drift detection for staging/prod evidence)
+- `RUN_IPV4_SCOPE_CHECK=1` runs `scripts/staging/ipv4-dataplane-scope-check.sh` to assert the IPv4-only product boundary string remains in `capabilities` `rfc9484.not_implemented`
 - When HA check runs, `full-check` report includes a **Multi-node HA Capability Matrix** section (node/LB endpoint vs key capability flags) for ops/audit evidence.
 - HA check also includes **Prometheus Target Detail (masque-server)** (instance/health/scrape_url/last_error) to quickly identify failing node targets.
 - HA check enforces node-list matching: normalized `MASQUE_NODE_URLS` host:port entries must appear as healthy Prometheus `instance` targets (prevents false pass by unrelated healthy nodes).
@@ -208,6 +211,8 @@ GitHub Actions staging gate:
 - The job `phase2b-kernel-staging` runs `scripts/staging/full-check.sh` with `RUN_PHASE2B_KERNEL=1`
 - Optional auth hardening gate: set `run_authz_hmac_check=true`, provide secret `STAGING_AUTHZ_HMAC_SECRET`, and set `authz_hmac_required_expected=1` after staging enables `MASQUE_AUTHORIZE_HMAC_REQUIRED=true`
 - Optional HA gate: set `run_multi_node_ha_check=true`, provide `masque_node_urls` (comma-separated node base URLs), `expected_healthy_nodes` (e.g. `2`), and optional `masque_lb_url` to verify LB capability profile matches backend node baseline
+- Optional stricter HA: set `strict_ha_no_unexpected=true` when you want `STRICT_HA_NO_UNEXPECTED=1` passed into the HA script (recommended once `MASQUE_NODE_URLS` is authoritative)
+- Optional IPv4 scope gate: set `run_ipv4_scope_check=true` to run the capabilities-only IPv4 boundary check (`RUN_IPV4_SCOPE_CHECK=1`)
 
 ### VPN NAT fault-injection (Actions + local)
 

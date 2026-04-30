@@ -332,6 +332,9 @@
                     <div class="actions">
                         <button class="smallbtn" type="submit">筛选</button>
                         <a class="smallbtn" href="{{ route('admin.audits', array_merge(request()->query(), ['tab' => 'audits', 'event_type' => 'admin.audit_archive_run'])) }}">仅看归档执行事件</a>
+                        <a class="smallbtn" href="{{ route('admin.audits', array_merge(request()->query(), ['tab' => 'audits', 'event_type' => 'admin.rbac_role_created'])) }}">RBAC·建角色</a>
+                        <a class="smallbtn" href="{{ route('admin.audits', array_merge(request()->query(), ['tab' => 'audits', 'event_type' => 'admin.rbac_role_permissions_updated'])) }}">RBAC·改权限</a>
+                        <a class="smallbtn" href="{{ route('admin.audits', array_merge(request()->query(), ['tab' => 'audits', 'event_type' => 'admin.rbac_user_roles_synced'])) }}">RBAC·同步用户角色</a>
                         <a class="smallbtn" href="{{ route('admin.audits', ['tab' => 'audits']) }}">重置</a>
                         <a class="smallbtn" href="{{ route('admin.audits.export', request()->query()) }}">导出CSV</a>
                     </div>

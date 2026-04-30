@@ -62,7 +62,7 @@
 
     <div class="card">
         <h2>按角色绑定权限</h2>
-        <p class="hint">使用 Ctrl/Cmd 多选权限；修改 <strong>admin</strong> 角色或<strong>首次</strong>给任意角色勾选 <code>admin.rbac.write</code> 时，请在对应表单填写「一次性确认码」（在控制台首页签发）。</p>
+        <p class="hint">使用 Ctrl/Cmd 多选权限。下列情况需在对应表单填写「一次性确认码」（控制台首页签发）：修改 <strong>admin</strong> 角色绑定；向任意角色<strong>新授予</strong>敏感权限（<code>admin.access</code>、<code>admin.policy.write</code>、<code>admin.session.revoke</code>、<code>admin.rbac.write</code>）。</p>
         @foreach($roles as $role)
             <form method="POST" action="{{ route('admin.rbac.roles.permissions', $role) }}" style="margin-bottom:18px;padding-bottom:14px;border-bottom:1px solid #22365d">
                 @csrf

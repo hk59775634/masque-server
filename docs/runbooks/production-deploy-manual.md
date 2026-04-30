@@ -35,6 +35,16 @@
 3. Run post-deploy checks:
    - `php artisan test` (or smoke-test in staging-like environment)
    - `./scripts/staging/smoke-test.sh`
+4. Control-plane database migration (when the release ships RBAC extension migrations such as `2026_04_30_120000_add_rbac_management_permission_and_template_roles`):
+   - From the `control-plane` app directory: `php artisan migrate --force`
+   - Follow **RBAC migration checklist** below before closing the change.
+
+#### RBAC migration checklist
+
+- After `migrate`: confirm `roles` includes `admin`, `auditor`, `ops`, `security`; confirm `permissions` includes `admin.rbac.write` and `permission_role` attaches it (and other permissions) to the `admin` role.
+- Confirm at least one break-glass operator can manage RBAC: `is_admin=true` and/or `admin` role (with 2FA challenge if enabled).
+- If the database already contained custom rows for names `auditor`, `ops`, or `security`, review the migration’s `updateOrInsert` / permission sync behaviour before migrating in production.
+- **Rollback:** avoid blind `php artisan migrate:rollback` in production; prefer forward-fix. Rolling back the last batch removes template roles and `admin.rbac.write` and can strand operators without RBAC UI access—plan session invalidation and role reassignment if you must roll back.
 
 ## 3. Validate observability
 
@@ -71,7 +81,7 @@ If severe regression happens:
 - Force logout user session is available in Admin user panel and also requires one-time confirmation token.
 - Batch force logout by scope is available (all users / non-admin users, excluding current operator), also requires one-time confirmation token.
 - Always verify audit log after high-risk operations.
-- RBAC 管理页（`/admin/rbac`）：修改 **admin** 角色的权限绑定，或**首次**给任意角色授予 `admin.rbac.write` 时，同样需要一次性确认码；用户管理员特权变化与策略页规则一致。
+- RBAC 管理页（`/admin/rbac`）：修改 **admin** 角色的权限绑定，或向任意角色**新授予**敏感权限（`admin.access`、`admin.policy.write`、`admin.session.revoke`、`admin.rbac.write`）时，需要一次性确认码；用户管理员特权变化与策略页规则一致。
 
 ### Authorize HMAC（控制面 ↔ masque）
 

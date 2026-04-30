@@ -55,6 +55,22 @@ on:
         required: false
         default: ""
         type: string
+      strict_ha_no_unexpected:
+        description: "HA gate: fail if Prometheus has extra healthy masque-server instances vs MASQUE_NODE_URLS"
+        required: true
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+      run_ipv4_scope_check:
+        description: "Run IPv4-only scope guard (capabilities not_implemented) on masque"
+        required: true
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
       control_plane_url:
         description: "Staging control-plane base URL"
         required: false
@@ -156,7 +172,7 @@ jobs:
           docker compose -f docker/e2e/docker-compose.yml down -v
 
   phase2b-kernel-staging:
-    if: ${{ github.event_name == 'workflow_dispatch' && (inputs.run_phase2b_kernel == 'true' || inputs.run_authz_hmac_check == 'true' || inputs.run_multi_node_ha_check == 'true') }}
+    if: ${{ github.event_name == 'workflow_dispatch' && (inputs.run_phase2b_kernel == 'true' || inputs.run_authz_hmac_check == 'true' || inputs.run_multi_node_ha_check == 'true' || inputs.run_ipv4_scope_check == 'true') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -176,9 +192,11 @@ jobs:
           EXPECTED_HEALTHY_NODES: ${{ inputs.expected_healthy_nodes }}
           MASQUE_NODE_URLS: ${{ inputs.masque_node_urls }}
           MASQUE_LB_URL: ${{ inputs.masque_lb_url }}
+          STRICT_HA_NO_UNEXPECTED: ${{ inputs.strict_ha_no_unexpected == 'true' && '1' || '0' }}
+          RUN_IPV4_SCOPE_CHECK: ${{ inputs.run_ipv4_scope_check == 'true' && '1' || '0' }}
           RUN_K6: "0"
           SKIP_LOKI: "0"
         run: |
           set -euo pipefail
-          chmod +x scripts/staging/full-check.sh scripts/staging/phase2b-kernel-check.sh scripts/staging/authz-hmac-check.sh scripts/staging/multi-node-ha-check.sh
+          chmod +x scripts/staging/full-check.sh scripts/staging/phase2b-kernel-check.sh scripts/staging/authz-hmac-check.sh scripts/staging/multi-node-ha-check.sh scripts/staging/ipv4-dataplane-scope-check.sh
           ./scripts/staging/full-check.sh

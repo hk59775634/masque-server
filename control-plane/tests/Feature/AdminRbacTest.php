@@ -115,5 +115,37 @@ class AdminRbacTest extends TestCase
 
         $this->assertDatabaseHas('roles', ['name' => 'custom_support']);
     }
+
+    public function test_granting_sensitive_permission_requires_operation_token(): void
+    {
+        $operator = User::factory()->create(['is_admin' => true]);
+        $role = Role::query()->create([
+            'name' => 'least_priv',
+            'display_name' => 'Least',
+        ]);
+        $auditPermId = (int) Permission::query()->where('name', 'admin.audit.read')->value('id');
+        $policyPermId = (int) Permission::query()->where('name', 'admin.policy.write')->value('id');
+        $role->permissions()->sync([$auditPermId]);
+
+        $this->actingAs($operator)
+            ->post(route('admin.rbac.roles.permissions', $role), [
+                'permission_ids' => [$auditPermId, $policyPermId],
+            ])
+            ->assertSessionHasErrors('operation_token');
+    }
+
+    public function test_admin_role_noop_permission_save_does_not_require_operation_token(): void
+    {
+        $operator = User::factory()->create(['is_admin' => true]);
+        $adminRole = Role::query()->where('name', 'admin')->firstOrFail();
+        $permIds = $adminRole->permissions()->pluck('permissions.id')->map(fn ($v): int => (int) $v)->sort()->values()->all();
+
+        $this->actingAs($operator)
+            ->post(route('admin.rbac.roles.permissions', $adminRole), [
+                'permission_ids' => $permIds,
+            ])
+            ->assertSessionDoesntHaveErrors()
+            ->assertRedirect();
+    }
 }
 

@@ -67,11 +67,13 @@ class AdminRbacController extends Controller
         $oldIds = $role->permissions()->pluck('permissions.id')->map(fn ($v): int => (int) $v)->sort()->values()->all();
         $idsEqual = $newIds === $oldIds;
 
-        $rbacWriteId = (int) Permission::query()->where('name', 'admin.rbac.write')->value('id');
-        $isGrantingRbacWrite = $rbacWriteId > 0
-            && in_array($rbacWriteId, $newIds, true)
-            && ! in_array($rbacWriteId, $oldIds, true);
-        $isHighRisk = (! $idsEqual && $role->name === 'admin') || $isGrantingRbacWrite;
+        $addedIds = array_values(array_diff($newIds, $oldIds));
+        $addedNames = $addedIds === []
+            ? []
+            : Permission::query()->whereIn('id', $addedIds)->pluck('name')->all();
+        $sensitivePermissionNames = ['admin.access', 'admin.policy.write', 'admin.session.revoke', 'admin.rbac.write'];
+        $isGrantingSensitivePermission = count(array_intersect($addedNames, $sensitivePermissionNames)) > 0;
+        $isHighRisk = (! $idsEqual && $role->name === 'admin') || $isGrantingSensitivePermission;
 
         $this->assertHighRiskConfirmed($request, $isHighRisk, $payload['operation_token'] ?? null);
 

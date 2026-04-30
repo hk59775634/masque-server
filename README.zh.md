@@ -17,7 +17,7 @@
 - **Phase 2a**：**`POST /v1/masque/tcp-probe`**（服务端代拨 TCP）、主监听可选 **HTTPS**、能力字段 `tunnel.phase2a`。
 - **Phase 2b（stub，本仓库已闭环）**：**CONNECT-IP 桩** + Linux **`connect-ip-tun`**（TUN、胶囊、分段默认路由、DNS 覆盖与退出恢复、**`-dns-resolvectl` 失败时可回退 `resolv.conf`（`-dns-resolvectl-fallback`）**、重连与运维向参数、`doctor -connect-ip`）；可选 **`CONNECT_IP_UDP_RELAY`** / **`CONNECT_IP_ICMP_RELAY`** / **`CONNECT_IP_ROUTE_ADV_CIDR`**；masque 在 **Linux** 上可选 **`CONNECT_IP_TUN_FORWARD`**（内核 TUN 转发）+ **`CONNECT_IP_TUN_SHARED`**（共享 TUN + 目的 IP 分流）+ **`CONNECT_IP_TUN_LINK_UP`**（`ip link up`）+ **`CONNECT_IP_TUN_MANAGED_NAT`**（托管 NAT 自动化，需 egress 配置）。**仍非** masque 侧全量策略管理器。
 - **Phase 2b（Linux 数据面 P0，主线已落地）**：托管 NAT **nft 优先**与可配置 **iptables 回退**、**`scripts/deploy/dataplane-preflight.sh`**、托管 NAT / 共享绑定指标与告警（含 nft fallback、active reassign）、**`scripts/vpn-nat-backend-fault-injection.sh`** 与 Actions **`VPN NAT fault-injection script`**（语法 + `--dry-run`）。说明见 **`docs/runbooks/connect-ip-tun-forward-linux.md`**。
-- **Phase 2b（生产级，进行中）**：细粒度 **RBAC**（基础表/权限中间件已落地，仍需管理界面与授权策略完善）、控制面↔masque **通道硬化**（已支持 authorize HMAC 签名，待强制化 rollout）；仍缺 **全协议 / 全 TCP 内核路径**、**多节点与高可用** 等。**不规划**：设备 **mTLS/客户端证书身份**、组织级**自建 CA 向终端签发/吊销**；**数据面 IPv6 生产线**不在本期与短期范围（见 `开发需求.md` §2.3）。
+- **Phase 2b（生产级，进行中）**：细粒度 **RBAC**（表/中间件 + **管理页 `/admin/rbac`**（`admin.rbac.write`）+ 模板角色 `auditor`/`ops`/`security` 已落地；授权策略与审计筛选持续迭代）、控制面↔masque **通道硬化**（已支持 authorize HMAC 签名，待强制化 rollout）；仍缺 **全协议 / 全 TCP 内核路径**、**多节点与高可用** 等。**不规划**：设备 **mTLS/客户端证书身份**、组织级**自建 CA 向终端签发/吊销**；**数据面 IPv6 生产线**不在本期与短期范围（见 `开发需求.md` §2.3）。
 
 ## QUIC / CONNECT-IP 桩（masque-server）
 
@@ -171,6 +171,8 @@ sudo go run ./cmd/client connect-ip-tun [-masque-server URL] [-connect-ip-udp ho
   - 会执行 `phase2b-kernel-staging` 任务，内部调用 `full-check.sh` 并开启 `RUN_PHASE2B_KERNEL=1`
   - 可选鉴权硬化门禁：设置 `run_authz_hmac_check=true`；若 staging 已开启 `MASQUE_AUTHORIZE_HMAC_REQUIRED=true`，同步设置 `authz_hmac_required_expected=1`，并配置仓库 secret `STAGING_AUTHZ_HMAC_SECRET`
   - 可选多节点 HA 门禁：设置 `run_multi_node_ha_check=true`，并填写 `masque_node_urls`（逗号分隔节点 URL）与 `expected_healthy_nodes`（如 `2`）；可选再填 `masque_lb_url` 用于校验 LB 的能力画像与后端节点基线一致
+  - 可选更严 HA：在已开启 HA 门禁时设置 `strict_ha_no_unexpected=true`，等价于向 `full-check` 传入 `STRICT_HA_NO_UNEXPECTED=1`（Prometheus 上多出来的健康 `masque-server` 实例会直接失败；适合 `MASQUE_NODE_URLS` 已作为权威清单的环境）
+  - 可选 IPv4 范围护栏：设置 `run_ipv4_scope_check=true`，等价于 `RUN_IPV4_SCOPE_CHECK=1`（仅校验 capabilities 中 `rfc9484.not_implemented` 仍含 IPv4-only 边界说明）
   - 开启 HA 门禁后，`full-check` 报告会附带 **Multi-node HA Capability Matrix**（节点/LB 与关键能力标志）以便运维验收留档。
   - 同时会输出 **Prometheus Target Detail (masque-server)**（`instance/health/scrape_url/last_error`），便于快速定位异常节点抓取。
   - HA 门禁会强制校验 `MASQUE_NODE_URLS` 与 Prometheus 健康 `instance` 对应关系（按 `host:port` 归一化），避免“健康节点数量够但并非目标节点”导致误通过。

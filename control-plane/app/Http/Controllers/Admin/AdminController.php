@@ -12,6 +12,7 @@ use App\Models\User;
 use App\Services\MasquePrometheusMetrics;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Hash;
@@ -43,6 +44,16 @@ class AdminController extends Controller
             ->distinct()
             ->orderBy('event_type')
             ->pluck('event_type');
+        $rbacAuditPresetTypes = [
+            'admin.rbac_role_created',
+            'admin.rbac_role_permissions_updated',
+            'admin.rbac_user_roles_synced',
+        ];
+        $auditEventTypes = Collection::make($auditEventTypes)
+            ->merge($rbacAuditPresetTypes)
+            ->unique()
+            ->sort()
+            ->values();
         $auditStats = [
             'active_count' => AuditLog::query()->whereNull('archived_at')->count(),
             'archived_count' => AuditLog::query()->whereNotNull('archived_at')->count(),
